@@ -9,8 +9,8 @@ require 'fileutils'
 logger = Logger.new(STDOUT)
 
 def report_pushover(message)
-  pushover_token   = ""
-  pushover_user    = ""
+  pushover_token   = ENV["PUSHOVER_TOKEN"]
+  pushover_user    = ENV["PUSHOVER_USER"]
   pushover_message = message
   pushover_url     = "https://api.pushover.net/1/messages"
   system("curl -XPOST #{pushover_url} --form-string 'token=#{pushover_token}' --form-string 'user=#{pushover_user}' --form-string 'message=#{pushover_message}'")
@@ -18,9 +18,8 @@ end
 
 # Validate Plex Token
 logger.info "Starting Plex Update"
-plex_token       = ""
+plex_token     = ENV["PLEX_TOKEN"]
 token_validation = Net::HTTP.get_response(URI("https://plex.tv/api/resources?X-Plex-Token=#{plex_token}")).response.code.to_i
-
 unless token_validation == 200
   message = "Token not valid"
   logger.info message
@@ -28,11 +27,9 @@ unless token_validation == 200
   exit
 end
 
-
 # Get latest versions
 latest_versions_url = URI("https://plex.tv/api/downloads/1.json?channel=plexpass&X-Plex-Token=#{plex_token}")
 linux_versions      = JSON.parse(Net::HTTP.get(latest_versions_url))["computer"]["Linux"]
-
 
 # Check Release Date
 latest_release     = linux_versions["release_date"]
@@ -53,7 +50,6 @@ if ( ubuntu64_release == "" ) || ( ubuntu64_release == nil ) || ( ubuntu64_relea
   exit
 end
 
-
 # Downlod Plex
 download_url = ubuntu64_release.first["url"]
 file_name = download_url.split("/")[-1]
@@ -72,7 +68,6 @@ rescue => e
   exit
 end
 
-
 # Decompress Plex
 begin
   logger.info "Decompressing Plex"
@@ -85,7 +80,6 @@ rescue => e
   report_pushover(message)
   exit
 end
-
 
 # Kill Plex
 begin

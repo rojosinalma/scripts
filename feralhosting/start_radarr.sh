@@ -1,0 +1,1 @@
+screen -dmS radarr /bin/bash -c 'export TMPDIR=~/tmp; ~/bin/mono --debug Radarr/Radarr.exe' && echo "http://$(hostname -f):$(sed -rn 's|(.*)<Port>(.*)</Port>|\2|p' ~/.config/Radarr/config.xml)/$(whoami)/Radarr/"
