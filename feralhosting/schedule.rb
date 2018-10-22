@@ -7,5 +7,5 @@ every 1.day, at: '22:00' do
 end
 
 every 1.day, at: '3:00' do
-  command ". $HOME/.profile; $HOME/scripts/feralhosting/start_jackett.sh"
+  command ". $HOME/.profile; $HOME/scripts/feralhosting/restart_jackett.sh"
 end
