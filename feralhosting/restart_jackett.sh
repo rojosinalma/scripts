@@ -2,4 +2,4 @@ kill "$(pgrep -fu "$(whoami)" "JackettConsole.exe")"
 
 sleep 2
 
-screen -dmS jackett mono --debug ~/Jackett/JackettConsole.exe && echo -e "\nhttp://$(hostname -f):$(sed -rn 's|(.*)"Port": (.*),|\2|p' ~/.config/Jackett/ServerConfig.json)"
+screen -dmS jackett && screen -S jackett -p 0 -X stuff "export TMPDIR=$HOME/tmp; ~/bin/mono --debug ~/.jackett/JackettConsole.exe^M"
