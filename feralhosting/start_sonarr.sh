@@ -1,1 +1,5 @@
-screen -dmS sonarr /bin/bash -c 'export TMPDIR=~/tmp; ~/bin/mono --debug NzbDrone/NzbDrone.exe' && echo "http://$(hostname -f):$(sed -rn 's|(.*)<Port>(.*)</Port>|\2|p' ~/.config/NzbDrone/config.xml)/$(whoami)/sonarr/"
+#!/bin/bash
+
+echo "INFO -- : Starting Sonarr"
+screen -dmS sonarr \
+/bin/bash -c 'export TMPDIR=~/tmp; ~/bin/mono --debug NzbDrone/NzbDrone.exe'
