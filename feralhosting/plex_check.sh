@@ -7,3 +7,4 @@ if [ $plex_count -lt 3 ]; then
   echo "[$(date)]  INFO -- : Plex not running! ($(plex_count)) Restarting."
   . kill_plex.sh
 fi
+echo "[$(date)]  INFO -- : Plex is ok, moving on..."
