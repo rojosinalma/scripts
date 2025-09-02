@@ -2,4 +2,4 @@
 
 echo "INFO -- : Starting Radarr"
 screen -dmS radarr \
-/bin/bash -c 'export TMPDIR=~/tmp; ~/bin/mono --debug Radarr/Radarr.exe'"
+/bin/bash -c 'export TMPDIR=~/.config/Radarr/tmp;/$HOME/Radarr/Radarr -nobrowser'

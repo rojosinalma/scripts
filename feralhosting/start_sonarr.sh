@@ -2,4 +2,4 @@
 
 echo "INFO -- : Starting Sonarr"
 screen -dmS sonarr \
-/bin/bash -c 'export TMPDIR=~/tmp; ~/bin/mono --debug NzbDrone/NzbDrone.exe'
+/bin/bash -c 'export TMPDIR=~/tmp; $HOME/Sonarr/Sonarr'
