@@ -3,7 +3,8 @@
     "allow": [
       "WebFetch(domain:www.openssl.org)",
       "WebFetch(domain:openssl-library.org)",
-      "WebFetch(domain:ftp.gnu.org)"
+      "WebFetch(domain:ftp.gnu.org)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": [],
     "ask": []

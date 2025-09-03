@@ -371,7 +371,8 @@ READLINE_VER=$(get_gnu_latest_version "readline" || echo "${FALLBACK_VERSIONS[re
 PKGCONFIG_VER=$(get_latest_version "pkg-config" "https://pkgconfig.freedesktop.org/releases/" "pkg-config-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)" || echo "${FALLBACK_VERSIONS[pkg-config]}")
 ZLIB_VER=$(get_latest_version "zlib" "https://zlib.net/" "zlib-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)" || echo "${FALLBACK_VERSIONS[zlib]}")
 SQLITE_VER=$(get_sqlite_latest_version || echo "${FALLBACK_VERSIONS[sqlite]}")
-OPENSSL_VER=$(get_latest_version "openssl" "https://openssl-library.org/source/" "openssl-\K[0-9]+\.[0-9]+\.[0-9]+(?=\.tar)" || echo "${FALLBACK_VERSIONS[openssl]}")
+# OpenSSL - use GitHub releases instead of openssl-library.org
+OPENSSL_VER=$(curl -s "https://api.github.com/repos/openssl/openssl/releases" | grep -oP '"tag_name":\s*"openssl-\K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "${FALLBACK_VERSIONS[openssl]}")
 
 # Create detailed versions manifest
 VERSIONS_LOG="$LOGS_DIR/versions_manifest.log"
@@ -412,7 +413,7 @@ VERSIONS_LOG="$LOGS_DIR/versions_manifest.log"
     echo "pkg-config: https://pkgconfig.freedesktop.org/releases/pkg-config-${PKGCONFIG_VER}.tar.gz"
     echo "zlib: https://zlib.net/zlib-${ZLIB_VER}.tar.gz"
     echo "SQLite: https://www.sqlite.org/$(date +%Y)/sqlite-autoconf-${SQLITE_VER}.tar.gz"
-    echo "OpenSSL: https://openssl-library.org/source/openssl-${OPENSSL_VER}.tar.gz"
+    echo "OpenSSL: https://github.com/openssl/openssl/archive/refs/tags/openssl-${OPENSSL_VER}.tar.gz"
     echo "ncurses: $GNU_MIRROR/ncurses/ncurses-${NCURSES_VER}.tar.gz"
     echo "readline: $GNU_MIRROR/readline/readline-${READLINE_VER}.tar.gz"
     echo ""
@@ -549,8 +550,8 @@ fi
 
 if [[ -n "$OPENSSL_VER" ]]; then
     OPENSSL_FILE="openssl-${OPENSSL_VER}.tar.gz"
-    OPENSSL_DIR="openssl-${OPENSSL_VER}"
-    start_download_job "openssl" "https://openssl-library.org/source/$OPENSSL_FILE" "$OPENSSL_FILE"
+    OPENSSL_DIR="openssl-openssl-${OPENSSL_VER}"  # GitHub archives have different directory structure
+    start_download_job "openssl" "https://github.com/openssl/openssl/archive/refs/tags/openssl-${OPENSSL_VER}.tar.gz" "$OPENSSL_FILE"
 fi
 
 if [[ -n "$NCURSES_VER" ]]; then
