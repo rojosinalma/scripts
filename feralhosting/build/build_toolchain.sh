@@ -77,6 +77,162 @@ handle_error() {
     return 1
 }
 
+# TUI Progress Display System
+TUI_ENABLED=true
+STATUS_FILE="$LOGS_DIR/.status"
+
+# Initialize TUI system
+init_tui() {
+    if [[ "$TUI_ENABLED" == "true" ]] && command -v tput >/dev/null 2>&1; then
+        # Save terminal settings
+        exec 3>&1 4>&2
+        # Clear screen and hide cursor
+        tput clear
+        tput civis
+        echo "" > "$STATUS_FILE"
+        
+        # Set up trap to restore terminal on exit
+        trap 'cleanup_tui' EXIT INT TERM
+    else
+        TUI_ENABLED=false
+    fi
+}
+
+# Cleanup TUI on exit
+cleanup_tui() {
+    if [[ "$TUI_ENABLED" == "true" ]]; then
+        tput cnorm  # Show cursor
+        tput sgr0   # Reset colors
+        exec 1>&3 2>&4  # Restore stdout/stderr
+    fi
+}
+
+# Update component status in TUI
+update_status() {
+    local component="$1"
+    local status="$2"
+    local extra="${3:-}"
+    
+    # Update status file
+    grep -v "^$component:" "$STATUS_FILE" > "$STATUS_FILE.tmp" 2>/dev/null || true
+    echo "$component:$status:$extra" >> "$STATUS_FILE.tmp"
+    mv "$STATUS_FILE.tmp" "$STATUS_FILE"
+    
+    # Refresh TUI display
+    refresh_tui
+}
+
+# Refresh the TUI display
+refresh_tui() {
+    if [[ "$TUI_ENABLED" != "true" ]]; then
+        return
+    fi
+    
+    # Clear screen and move to top
+    tput clear
+    tput cup 0 0
+    
+    # Header
+    echo "┌────────────────────────────────────────────────────────────────────────────────┐"
+    echo "│                        🔨 TOOLCHAIN BUILD PROGRESS                            │"
+    echo "├────────────────────────────────────────────────────────────────────────────────┤"
+    printf "│ Build Started: %-30s Log: %-25s │\n" "$(date)" "$(basename "$LOG_FILE")"
+    printf "│ Install Path:  %-63s │\n" "$LOCAL_PREFIX"
+    echo "├────────────────────────────────────────────────────────────────────────────────┤"
+    
+    # Current phase indicator
+    local current_phase="INITIALIZING"
+    if [[ -f "$DOWNLOADS_DIR/.download_results" ]] && ! jobs -r | grep -q .; then
+        if [[ -f "$DOWNLOADS_DIR/.build_results" ]]; then
+            current_phase="BUILDING"
+        else
+            current_phase="EXTRACTING"
+        fi
+    elif jobs -r | grep -q .; then
+        if [[ -f "$DOWNLOADS_DIR/.download_results" ]]; then
+            current_phase="DOWNLOADING"
+        fi
+    fi
+    
+    printf "│ Current Phase: %-64s │\n" "$current_phase"
+    echo "├────────────────────────────────────────────────────────────────────────────────┤"
+    
+    # Component status display
+    local components=(
+        "binutils" "gcc" "glibc" "make" "autoconf" "automake" "libtool" 
+        "pkg-config" "zlib" "sqlite" "openssl" "ncurses" "readline"
+    )
+    
+    for comp in "${components[@]}"; do
+        local status_line=""
+        local icon="⏸️"
+        local color=""
+        
+        if [[ -f "$STATUS_FILE" ]]; then
+            local status_info=$(grep "^$comp:" "$STATUS_FILE" 2>/dev/null || echo "$comp:pending:")
+            local status=$(echo "$status_info" | cut -d: -f2)
+            local extra=$(echo "$status_info" | cut -d: -f3-)
+            
+            case "$status" in
+                "downloading") icon="📥"; color="$(tput setaf 3)" ;;  # Yellow
+                "download_done") icon="✅"; color="$(tput setaf 2)" ;;  # Green
+                "download_failed") icon="❌"; color="$(tput setaf 1)" ;;  # Red
+                "extracting") icon="📦"; color="$(tput setaf 3)" ;;  # Yellow
+                "extract_done") icon="✅"; color="$(tput setaf 2)" ;;  # Green
+                "extract_failed") icon="❌"; color="$(tput setaf 1)" ;;  # Red
+                "building") icon="🔨"; color="$(tput setaf 6)" ;;  # Cyan
+                "build_done") icon="✅"; color="$(tput setaf 2)" ;;  # Green
+                "build_failed") icon="❌"; color="$(tput setaf 1)" ;;  # Red
+                "skipped") icon="⏭️"; color="$(tput setaf 8)" ;;  # Gray
+                "pending") icon="⏸️"; color="$(tput setaf 8)" ;;  # Gray
+            esac
+            
+            if [[ -n "$extra" ]]; then
+                status_line="$status ($extra)"
+            else
+                status_line="$status"
+            fi
+        fi
+        
+        printf "│ %s %s%-12s%s %-55s │\n" "$icon" "$color" "$comp" "$(tput sgr0)" "$status_line"
+    done
+    
+    echo "├────────────────────────────────────────────────────────────────────────────────┤"
+    
+    # Summary stats
+    local total=13
+    local completed=0
+    local failed=0
+    local in_progress=0
+    
+    if [[ -f "$STATUS_FILE" ]]; then
+        completed=$(grep -c ":build_done:\|:skipped:" "$STATUS_FILE" 2>/dev/null || echo 0)
+        failed=$(grep -c ":.*_failed:" "$STATUS_FILE" 2>/dev/null || echo 0)
+        in_progress=$(grep -c ":downloading:\|:extracting:\|:building:" "$STATUS_FILE" 2>/dev/null || echo 0)
+    fi
+    
+    local progress_percent=$((completed * 100 / total))
+    printf "│ Progress: %3d%% (%d/%d complete, %d failed, %d in progress)%-17s │\n" \
+           "$progress_percent" "$completed" "$total" "$failed" "$in_progress" ""
+    
+    # Progress bar
+    local bar_width=70
+    local filled_width=$((progress_percent * bar_width / 100))
+    local bar="["
+    for ((i=0; i<filled_width; i++)); do bar+="█"; done
+    for ((i=filled_width; i<bar_width; i++)); do bar+="░"; done
+    bar+="]"
+    printf "│ %s │\n" "$bar"
+    
+    echo "└────────────────────────────────────────────────────────────────────────────────┘"
+    
+    # Instructions
+    echo ""
+    echo "💡 Detailed logs: $LOGS_DIR/"
+    echo "📋 Press Ctrl+C to cancel build"
+    echo ""
+}
+
 DOWNLOADS_DIR="$SCRIPT_DIR/downloads"
 
 # Create downloads directory if it doesn't exist
@@ -92,6 +248,9 @@ declare -A VERSION_CACHE
 
 log "=== Starting toolchain build ==="
 log "Log file: $LOG_FILE"
+
+# Initialize TUI progress display
+init_tui
 
 # Function to get latest version from GNU FTP
 get_gnu_latest_version() {
@@ -455,8 +614,12 @@ start_download_job() {
     
     if [[ -f "$filename" ]]; then
         log "✓ $filename already downloaded"
+        update_status "$name" "download_done" "already exists"
         return 0
     fi
+    
+    # Update TUI status
+    update_status "$name" "downloading"
     
     # Create individual log file for this download
     local download_log="$LOGS_DIR/download_${name}.log"
@@ -473,9 +636,11 @@ start_download_job() {
         if download_if_missing "$url"; then
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Download successful: $name"
             echo "SUCCESS:$name:$filename" >> "$DOWNLOADS_DIR/.download_results"
+            update_status "$name" "download_done"
         else
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ Download failed: $name"
             echo "FAILED:$name:$filename" >> "$DOWNLOADS_DIR/.download_results"
+            update_status "$name" "download_failed"
         fi
     } &
     
@@ -566,11 +731,18 @@ if [[ -n "$READLINE_VER" ]]; then
     start_download_job "readline" "$GNU_MIRROR/readline/$READLINE_FILE" "$READLINE_FILE"
 fi
 
-# Wait for all downloads to complete
+# Wait for all downloads to complete with TUI updates
 log "⏳ Waiting for downloads to complete..."
-for name in "${!DOWNLOAD_PIDS[@]}"; do
-    wait "${DOWNLOAD_PIDS[$name]}"
-    log "✅ Download completed: $name"
+while [[ ${#DOWNLOAD_PIDS[@]} -gt 0 ]]; do
+    for name in "${!DOWNLOAD_PIDS[@]}"; do
+        if ! kill -0 "${DOWNLOAD_PIDS[$name]}" 2>/dev/null; then
+            wait "${DOWNLOAD_PIDS[$name]}"
+            unset DOWNLOAD_PIDS[$name]
+            log "✅ Download completed: $name"
+        fi
+    done
+    sleep 1
+    refresh_tui
 done
 
 # Check results and handle SQLite fallback if needed
@@ -590,6 +762,9 @@ start_extract_job() {
     local filename=$2
     local dirname=$3
     
+    # Update TUI status
+    update_status "$name" "extracting"
+    
     # Create individual log file for this extraction
     local extract_log="$LOGS_DIR/extract_${name}.log"
     
@@ -605,9 +780,11 @@ start_extract_job() {
         if safe_extract "$filename" "$dirname"; then
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Extraction successful: $name"
             echo "EXTRACT_SUCCESS:$name" >> "$DOWNLOADS_DIR/.extract_results"
+            update_status "$name" "extract_done"
         else
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ Extraction failed: $name"
             echo "EXTRACT_FAILED:$name" >> "$DOWNLOADS_DIR/.extract_results"
+            update_status "$name" "extract_failed"
         fi
     } &
     
@@ -634,11 +811,18 @@ declare -A EXTRACT_PIDS
 [[ -f "$NCURSES_FILE" ]] && start_extract_job "ncurses" "$NCURSES_FILE" "$NCURSES_DIR"
 [[ -f "$READLINE_FILE" ]] && start_extract_job "readline" "$READLINE_FILE" "$READLINE_DIR"
 
-# Wait for all extractions
+# Wait for all extractions with TUI updates
 log "⏳ Waiting for extractions to complete..."
-for name in "${!EXTRACT_PIDS[@]}"; do
-    wait "${EXTRACT_PIDS[$name]}"
-    log "✅ Extraction completed: $name"
+while [[ ${#EXTRACT_PIDS[@]} -gt 0 ]]; do
+    for name in "${!EXTRACT_PIDS[@]}"; do
+        if ! kill -0 "${EXTRACT_PIDS[$name]}" 2>/dev/null; then
+            wait "${EXTRACT_PIDS[$name]}"
+            unset EXTRACT_PIDS[$name]
+            log "✅ Extraction completed: $name"
+        fi
+    done
+    sleep 1
+    refresh_tui
 done
 
 # Download GCC prerequisites after GCC is extracted
@@ -676,18 +860,25 @@ start_build_job() {
         if eval "$check_cmd" &>/dev/null; then
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✓ $name already installed, skipping..."
             echo "SKIPPED:$name" >> "$DOWNLOADS_DIR/.build_results"
+            update_status "$name" "skipped"
         else
+            # Update status to building
+            update_status "$name" "building"
+            
             if [[ -n "$component" && -d "$build_dir" ]]; then
                 if safe_build "$name" "$build_dir" "$configure_args"; then
                     echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Build successful: $name"
                     echo "SUCCESS:$name" >> "$DOWNLOADS_DIR/.build_results"
+                    update_status "$name" "build_done"
                 else
                     echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ Build failed: $name"
                     echo "FAILED:$name" >> "$DOWNLOADS_DIR/.build_results"
+                    update_status "$name" "build_failed"
                 fi
             else
                 echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ Missing source directory: $name"
                 echo "FAILED:$name:missing_source" >> "$DOWNLOADS_DIR/.build_results"
+                update_status "$name" "build_failed" "missing source"
             fi
         fi
     } &
@@ -760,13 +951,18 @@ log "🚀 Phase 4: GCC Stage 2 and remaining tools"
 
 [[ -n "$READLINE_VER" && -d "$READLINE_DIR" ]] && start_build_job "readline" "$READLINE_VER" "$READLINE_DIR" "./configure --prefix='$LOCAL_PREFIX'" "test -f '$LOCAL_PREFIX/lib/libreadline.so'"
 
-# Wait for all remaining builds
+# Wait for all remaining builds with TUI updates
 log "⏳ Waiting for all builds to complete..."
-for name in "${!BUILD_PIDS[@]}"; do
-    if jobs -p | grep -q "${BUILD_PIDS[$name]}"; then
-        wait "${BUILD_PIDS[$name]}"
-        log "✅ Build completed: $name"
-    fi
+while [[ ${#BUILD_PIDS[@]} -gt 0 ]]; do
+    for name in "${!BUILD_PIDS[@]}"; do
+        if ! kill -0 "${BUILD_PIDS[$name]}" 2>/dev/null; then
+            wait "${BUILD_PIDS[$name]}"
+            unset BUILD_PIDS[$name]
+            log "✅ Build completed: $name"
+        fi
+    done
+    sleep 2  # Slightly longer delay for builds
+    refresh_tui
 done
 
 # Create post-build verification log
@@ -895,6 +1091,16 @@ log "  ✅ Installed versions: $INSTALLED_LOG"
 log "  📥 Individual download logs: $LOGS_DIR/download_*.log"
 log "  📦 Individual extraction logs: $LOGS_DIR/extract_*.log"
 log "  🔨 Individual build logs: $LOGS_DIR/build_*.log"
+
+# Final TUI refresh to show completed state
+refresh_tui
+
+# Wait a moment for user to see final state before restoring terminal
+if [[ "$TUI_ENABLED" == "true" ]]; then
+    echo ""
+    echo "🎉 Build process complete! Press Enter to continue..."
+    read -r
+fi
 
 # Function to update .profile with toolchain environment variables
 update_profile() {
