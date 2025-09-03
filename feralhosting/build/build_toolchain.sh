@@ -389,287 +389,306 @@ log "  OpenSSL: $OPENSSL_VER"
 log "  ncurses: $NCURSES_VER"
 log "  readline: $READLINE_VER"
 
-log "=== Downloading Sources ==="
+log "=== Downloading Sources (Parallel) ==="
 
-# Binutils
+# Set up variables for all downloads
+declare -A DOWNLOAD_JOBS
+declare -A DOWNLOAD_PIDS
+
+# Function to start a download job in background
+start_download_job() {
+    local name=$1
+    local url=$2
+    local filename=$3
+    
+    if [[ -f "$filename" ]]; then
+        log "✓ $filename already downloaded"
+        return 0
+    fi
+    
+    {
+        if download_if_missing "$url"; then
+            echo "SUCCESS:$name:$filename" >> "$DOWNLOADS_DIR/.download_results"
+        else
+            echo "FAILED:$name:$filename" >> "$DOWNLOADS_DIR/.download_results"
+        fi
+    } &
+    
+    DOWNLOAD_PIDS[$name]=$!
+    log "🔄 Started download: $name (PID: ${DOWNLOAD_PIDS[$name]})"
+}
+
+# Initialize results file
+echo "" > "$DOWNLOADS_DIR/.download_results"
+
+# Start all downloads in parallel
 if [[ -n "$BINUTILS_VER" ]]; then
     BINUTILS_FILE="binutils-${BINUTILS_VER}.tar.xz"
     BINUTILS_DIR="binutils-${BINUTILS_VER}"
-    if download_if_missing "$GNU_MIRROR/binutils/$BINUTILS_FILE"; then
-        safe_extract "$BINUTILS_FILE" "$BINUTILS_DIR"
-    fi
+    start_download_job "binutils" "$GNU_MIRROR/binutils/$BINUTILS_FILE" "$BINUTILS_FILE"
 fi
 
-# GCC (with prerequisites)
 if [[ -n "$GCC_VER" ]]; then
     GCC_FILE="gcc-${GCC_VER}.tar.xz"
     GCC_DIR="gcc-${GCC_VER}"
-    if download_if_missing "$GNU_MIRROR/gcc/gcc-${GCC_VER}/$GCC_FILE"; then
-        if safe_extract "$GCC_FILE" "$GCC_DIR"; then
-            log "📥 Downloading GCC prerequisites..."
-            cd "$GCC_DIR" && ./contrib/download_prerequisites && cd "$DOWNLOADS_DIR" || {
-                handle_error "GCC prerequisites" "download"
-            }
-        fi
-    fi
+    start_download_job "gcc" "$GNU_MIRROR/gcc/gcc-${GCC_VER}/$GCC_FILE" "$GCC_FILE"
 fi
 
-# Glibc
 if [[ -n "$GLIBC_VER" ]]; then
     GLIBC_FILE="glibc-${GLIBC_VER}.tar.xz"
     GLIBC_DIR="glibc-${GLIBC_VER}"
-    if download_if_missing "$GNU_MIRROR/glibc/$GLIBC_FILE"; then
-        safe_extract "$GLIBC_FILE" "$GLIBC_DIR"
-    fi
+    start_download_job "glibc" "$GNU_MIRROR/glibc/$GLIBC_FILE" "$GLIBC_FILE"
 fi
 
-# Make
 if [[ -n "$MAKE_VER" ]]; then
     MAKE_FILE="make-${MAKE_VER}.tar.gz"
     MAKE_DIR="make-${MAKE_VER}"
-    if download_if_missing "$GNU_MIRROR/make/$MAKE_FILE"; then
-        safe_extract "$MAKE_FILE" "$MAKE_DIR"
-    fi
+    start_download_job "make" "$GNU_MIRROR/make/$MAKE_FILE" "$MAKE_FILE"
 fi
 
-# Autotools
 if [[ -n "$AUTOCONF_VER" ]]; then
     AUTOCONF_FILE="autoconf-${AUTOCONF_VER}.tar.xz"
     AUTOCONF_DIR="autoconf-${AUTOCONF_VER}"
-    if download_if_missing "$GNU_MIRROR/autoconf/$AUTOCONF_FILE"; then
-        safe_extract "$AUTOCONF_FILE" "$AUTOCONF_DIR"
-    fi
+    start_download_job "autoconf" "$GNU_MIRROR/autoconf/$AUTOCONF_FILE" "$AUTOCONF_FILE"
 fi
 
 if [[ -n "$AUTOMAKE_VER" ]]; then
     AUTOMAKE_FILE="automake-${AUTOMAKE_VER}.tar.xz"
     AUTOMAKE_DIR="automake-${AUTOMAKE_VER}"
-    if download_if_missing "$GNU_MIRROR/automake/$AUTOMAKE_FILE"; then
-        safe_extract "$AUTOMAKE_FILE" "$AUTOMAKE_DIR"
-    fi
+    start_download_job "automake" "$GNU_MIRROR/automake/$AUTOMAKE_FILE" "$AUTOMAKE_FILE"
 fi
 
 if [[ -n "$LIBTOOL_VER" ]]; then
     LIBTOOL_FILE="libtool-${LIBTOOL_VER}.tar.xz"
     LIBTOOL_DIR="libtool-${LIBTOOL_VER}"
-    if download_if_missing "$GNU_MIRROR/libtool/$LIBTOOL_FILE"; then
-        safe_extract "$LIBTOOL_FILE" "$LIBTOOL_DIR"
-    fi
+    start_download_job "libtool" "$GNU_MIRROR/libtool/$LIBTOOL_FILE" "$LIBTOOL_FILE"
 fi
 
-# pkg-config
 if [[ -n "$PKGCONFIG_VER" ]]; then
     PKGCONFIG_FILE="pkg-config-${PKGCONFIG_VER}.tar.gz"
     PKGCONFIG_DIR="pkg-config-${PKGCONFIG_VER}"
-    if download_if_missing "https://pkgconfig.freedesktop.org/releases/$PKGCONFIG_FILE"; then
-        safe_extract "$PKGCONFIG_FILE" "$PKGCONFIG_DIR"
-    fi
+    start_download_job "pkg-config" "https://pkgconfig.freedesktop.org/releases/$PKGCONFIG_FILE" "$PKGCONFIG_FILE"
 fi
 
-# Essential libraries
 if [[ -n "$ZLIB_VER" ]]; then
     ZLIB_FILE="zlib-${ZLIB_VER}.tar.gz"
     ZLIB_DIR="zlib-${ZLIB_VER}"
-    if download_if_missing "https://zlib.net/$ZLIB_FILE"; then
-        safe_extract "$ZLIB_FILE" "$ZLIB_DIR"
-    fi
+    start_download_job "zlib" "https://zlib.net/$ZLIB_FILE" "$ZLIB_FILE"
 fi
 
 if [[ -n "$SQLITE_VER" ]]; then
     SQLITE_FILE="sqlite-autoconf-${SQLITE_VER}.tar.gz"
     SQLITE_DIR="sqlite-autoconf-${SQLITE_VER}"
-    # SQLite uses year-based URLs, try current year first
     SQLITE_YEAR=$(date +%Y)
-    if ! download_if_missing "https://www.sqlite.org/${SQLITE_YEAR}/$SQLITE_FILE"; then
-        # Try previous year if current year fails
-        PREV_YEAR=$((SQLITE_YEAR - 1))
-        download_if_missing "https://www.sqlite.org/${PREV_YEAR}/$SQLITE_FILE"
-    fi
-    if [[ -f "$SQLITE_FILE" ]]; then
-        safe_extract "$SQLITE_FILE" "$SQLITE_DIR"
-    fi
+    start_download_job "sqlite" "https://www.sqlite.org/${SQLITE_YEAR}/$SQLITE_FILE" "$SQLITE_FILE"
 fi
 
 if [[ -n "$OPENSSL_VER" ]]; then
     OPENSSL_FILE="openssl-${OPENSSL_VER}.tar.gz"
     OPENSSL_DIR="openssl-${OPENSSL_VER}"
-    if download_if_missing "https://openssl-library.org/source/$OPENSSL_FILE"; then
-        safe_extract "$OPENSSL_FILE" "$OPENSSL_DIR"
-    fi
+    start_download_job "openssl" "https://openssl-library.org/source/$OPENSSL_FILE" "$OPENSSL_FILE"
 fi
 
 if [[ -n "$NCURSES_VER" ]]; then
     NCURSES_FILE="ncurses-${NCURSES_VER}.tar.gz"
     NCURSES_DIR="ncurses-${NCURSES_VER}"
-    if download_if_missing "$GNU_MIRROR/ncurses/$NCURSES_FILE"; then
-        safe_extract "$NCURSES_FILE" "$NCURSES_DIR"
-    fi
+    start_download_job "ncurses" "$GNU_MIRROR/ncurses/$NCURSES_FILE" "$NCURSES_FILE"
 fi
 
 if [[ -n "$READLINE_VER" ]]; then
     READLINE_FILE="readline-${READLINE_VER}.tar.gz"
     READLINE_DIR="readline-${READLINE_VER}"
-    if download_if_missing "$GNU_MIRROR/readline/$READLINE_FILE"; then
-        safe_extract "$READLINE_FILE" "$READLINE_DIR"
+    start_download_job "readline" "$GNU_MIRROR/readline/$READLINE_FILE" "$READLINE_FILE"
+fi
+
+# Wait for all downloads to complete
+log "⏳ Waiting for downloads to complete..."
+for name in "${!DOWNLOAD_PIDS[@]}"; do
+    wait "${DOWNLOAD_PIDS[$name]}"
+    log "✅ Download completed: $name"
+done
+
+# Check results and handle SQLite fallback if needed
+if grep -q "FAILED:sqlite:" "$DOWNLOADS_DIR/.download_results" 2>/dev/null; then
+    log "🔄 SQLite download failed, trying previous year..."
+    PREV_YEAR=$((SQLITE_YEAR - 1))
+    if download_if_missing "https://www.sqlite.org/${PREV_YEAR}/$SQLITE_FILE"; then
+        log "✅ SQLite downloaded from previous year"
     fi
 fi
 
-log "=== Building Toolchain ==="
+log "=== Extracting Archives (Parallel) ==="
 
-# 1. Binutils
-if check_installed "binutils" "test -f '$LOCAL_PREFIX/bin/ld' && '$LOCAL_PREFIX/bin/ld' --version"; then
-    log "Skipping binutils build"
-else
-    if [[ -n "$BINUTILS_VER" && -d "$BINUTILS_DIR" ]]; then
-        safe_build "binutils" "$BINUTILS_DIR" "./configure --prefix='$LOCAL_PREFIX' --disable-werror"
-    else
-        handle_error "binutils" "source directory not found or version detection failed"
-    fi
+# Function to extract in background
+start_extract_job() {
+    local name=$1
+    local filename=$2
+    local dirname=$3
+    
+    {
+        if safe_extract "$filename" "$dirname"; then
+            echo "EXTRACT_SUCCESS:$name" >> "$DOWNLOADS_DIR/.extract_results"
+        else
+            echo "EXTRACT_FAILED:$name" >> "$DOWNLOADS_DIR/.extract_results"
+        fi
+    } &
+    
+    EXTRACT_PIDS[$name]=$!
+}
+
+# Initialize extract results
+echo "" > "$DOWNLOADS_DIR/.extract_results"
+declare -A EXTRACT_PIDS
+
+# Start all extractions in parallel
+[[ -f "$BINUTILS_FILE" ]] && start_extract_job "binutils" "$BINUTILS_FILE" "$BINUTILS_DIR"
+[[ -f "$GCC_FILE" ]] && start_extract_job "gcc" "$GCC_FILE" "$GCC_DIR"
+[[ -f "$GLIBC_FILE" ]] && start_extract_job "glibc" "$GLIBC_FILE" "$GLIBC_DIR"
+[[ -f "$MAKE_FILE" ]] && start_extract_job "make" "$MAKE_FILE" "$MAKE_DIR"
+[[ -f "$AUTOCONF_FILE" ]] && start_extract_job "autoconf" "$AUTOCONF_FILE" "$AUTOCONF_DIR"
+[[ -f "$AUTOMAKE_FILE" ]] && start_extract_job "automake" "$AUTOMAKE_FILE" "$AUTOMAKE_DIR"
+[[ -f "$LIBTOOL_FILE" ]] && start_extract_job "libtool" "$LIBTOOL_FILE" "$LIBTOOL_DIR"
+[[ -f "$PKGCONFIG_FILE" ]] && start_extract_job "pkg-config" "$PKGCONFIG_FILE" "$PKGCONFIG_DIR"
+[[ -f "$ZLIB_FILE" ]] && start_extract_job "zlib" "$ZLIB_FILE" "$ZLIB_DIR"
+[[ -f "$SQLITE_FILE" ]] && start_extract_job "sqlite" "$SQLITE_FILE" "$SQLITE_DIR"
+[[ -f "$OPENSSL_FILE" ]] && start_extract_job "openssl" "$OPENSSL_FILE" "$OPENSSL_DIR"
+[[ -f "$NCURSES_FILE" ]] && start_extract_job "ncurses" "$NCURSES_FILE" "$NCURSES_DIR"
+[[ -f "$READLINE_FILE" ]] && start_extract_job "readline" "$READLINE_FILE" "$READLINE_DIR"
+
+# Wait for all extractions
+log "⏳ Waiting for extractions to complete..."
+for name in "${!EXTRACT_PIDS[@]}"; do
+    wait "${EXTRACT_PIDS[$name]}"
+    log "✅ Extraction completed: $name"
+done
+
+# Download GCC prerequisites after GCC is extracted
+if [[ -d "$GCC_DIR" ]]; then
+    log "📥 Downloading GCC prerequisites..."
+    cd "$GCC_DIR" && ./contrib/download_prerequisites && cd "$DOWNLOADS_DIR" || {
+        handle_error "GCC prerequisites" "download"
+    }
 fi
 
-# 2. GCC (stage 1 - C only)
-if check_installed "GCC stage 1" "test -f '$LOCAL_PREFIX/bin/gcc' && '$LOCAL_PREFIX/bin/gcc' --version"; then
-    log "Skipping GCC stage 1 build"
-else
-    if [[ -n "$GCC_VER" && -d "$GCC_DIR" ]]; then
-        safe_build "GCC stage 1" "gcc-build-stage1" "../$GCC_DIR/configure --prefix='$LOCAL_PREFIX' --enable-languages=c --disable-multilib --disable-bootstrap --disable-libsanitizer"
-    else
-        handle_error "GCC stage 1" "source directory not found or version detection failed"
+log "=== Building Toolchain (Dependency-Aware Parallel) ==="
+
+# Function to build component in background with dependency checking
+start_build_job() {
+    local name=$1
+    local component=$2
+    local build_dir=$3
+    local configure_args=$4
+    local check_cmd=$5
+    
+    {
+        if eval "$check_cmd" &>/dev/null; then
+            log "✓ $name already installed, skipping..." >&2
+            echo "SKIPPED:$name" >> "$DOWNLOADS_DIR/.build_results"
+        else
+            if [[ -n "$component" && -d "$build_dir" ]]; then
+                if safe_build "$name" "$build_dir" "$configure_args"; then
+                    echo "SUCCESS:$name" >> "$DOWNLOADS_DIR/.build_results"
+                else
+                    echo "FAILED:$name" >> "$DOWNLOADS_DIR/.build_results"
+                fi
+            else
+                echo "FAILED:$name:missing_source" >> "$DOWNLOADS_DIR/.build_results"
+            fi
+        fi
+    } &
+    
+    BUILD_PIDS[$name]=$!
+    log "🔄 Started build: $name (PID: ${BUILD_PIDS[$name]})"
+}
+
+# Wait for specific builds to complete
+wait_for_builds() {
+    local -a names=("$@")
+    for name in "${names[@]}"; do
+        if [[ -n "${BUILD_PIDS[$name]:-}" ]]; then
+            wait "${BUILD_PIDS[$name]}"
+            log "✅ Build completed: $name"
+        fi
+    done
+}
+
+# Initialize build tracking
+echo "" > "$DOWNLOADS_DIR/.build_results"
+declare -A BUILD_PIDS
+
+# PHASE 1: Independent builds (can all run in parallel)
+log "🚀 Phase 1: Independent components"
+
+# Libraries that don't depend on the toolchain
+[[ -n "$ZLIB_VER" && -d "$ZLIB_DIR" ]] && start_build_job "zlib" "$ZLIB_VER" "$ZLIB_DIR" "./configure --prefix='$LOCAL_PREFIX'" "test -f '$LOCAL_PREFIX/lib/libz.so'"
+
+[[ -n "$SQLITE_VER" && -d "$SQLITE_DIR" ]] && start_build_job "sqlite" "$SQLITE_VER" "$SQLITE_DIR" "./configure --prefix='$LOCAL_PREFIX'" "test -f '$LOCAL_PREFIX/lib/libsqlite3.so'"
+
+[[ -n "$NCURSES_VER" && -d "$NCURSES_DIR" ]] && start_build_job "ncurses" "$NCURSES_VER" "$NCURSES_DIR" "./configure --prefix='$LOCAL_PREFIX' --with-shared --enable-widec" "test -f '$LOCAL_PREFIX/lib/libncurses.so'"
+
+[[ -n "$OPENSSL_VER" && -d "$OPENSSL_DIR" ]] && start_build_job "openssl" "$OPENSSL_VER" "$OPENSSL_DIR" "./config --prefix='$LOCAL_PREFIX' --openssldir='$LOCAL_PREFIX/ssl'" "test -f '$LOCAL_PREFIX/lib/libssl.so'"
+
+[[ -n "$PKGCONFIG_VER" && -d "$PKGCONFIG_DIR" ]] && start_build_job "pkg-config" "$PKGCONFIG_VER" "$PKGCONFIG_DIR" "./configure --prefix='$LOCAL_PREFIX' --with-internal-glib" "'$LOCAL_PREFIX/bin/pkg-config' --version"
+
+# Autotools (independent)
+[[ -n "$AUTOCONF_VER" && -d "$AUTOCONF_DIR" ]] && start_build_job "autoconf" "$AUTOCONF_VER" "$AUTOCONF_DIR" "./configure --prefix='$LOCAL_PREFIX'" "'$LOCAL_PREFIX/bin/autoconf' --version"
+
+[[ -n "$AUTOMAKE_VER" && -d "$AUTOMAKE_DIR" ]] && start_build_job "automake" "$AUTOMAKE_VER" "$AUTOMAKE_DIR" "./configure --prefix='$LOCAL_PREFIX'" "'$LOCAL_PREFIX/bin/automake' --version"
+
+[[ -n "$LIBTOOL_VER" && -d "$LIBTOOL_DIR" ]] && start_build_job "libtool" "$LIBTOOL_VER" "$LIBTOOL_DIR" "./configure --prefix='$LOCAL_PREFIX'" "'$LOCAL_PREFIX/bin/libtool' --version"
+
+# Binutils (needed for GCC but independent otherwise)
+[[ -n "$BINUTILS_VER" && -d "$BINUTILS_DIR" ]] && start_build_job "binutils" "$BINUTILS_VER" "$BINUTILS_DIR" "./configure --prefix='$LOCAL_PREFIX' --disable-werror" "test -f '$LOCAL_PREFIX/bin/ld' && '$LOCAL_PREFIX/bin/ld' --version"
+
+# PHASE 2: GCC Stage 1 (needs binutils)
+log "⏳ Waiting for binutils to complete before GCC stage 1..."
+wait_for_builds "binutils"
+
+log "🚀 Phase 2: GCC Stage 1 (C compiler)"
+[[ -n "$GCC_VER" && -d "$GCC_DIR" ]] && start_build_job "gcc-stage1" "$GCC_VER" "gcc-build-stage1" "../$GCC_DIR/configure --prefix='$LOCAL_PREFIX' --enable-languages=c --disable-multilib --disable-bootstrap --disable-libsanitizer" "test -f '$LOCAL_PREFIX/bin/gcc' && '$LOCAL_PREFIX/bin/gcc' --version"
+
+# PHASE 3: Glibc (needs GCC stage 1)
+log "⏳ Waiting for GCC stage 1 to complete before glibc..."
+wait_for_builds "gcc-stage1"
+
+log "🚀 Phase 3: Glibc (C library)"
+[[ -n "$GLIBC_VER" && -d "$GLIBC_DIR" ]] && start_build_job "glibc" "$GLIBC_VER" "glibc-build" "../$GLIBC_DIR/configure --prefix='$LOCAL_PREFIX' --disable-werror --enable-shared" "test -f '$LOCAL_PREFIX/lib/libc.so'"
+
+# PHASE 4: GCC Stage 2 and remaining tools (need glibc)
+log "⏳ Waiting for glibc to complete before final phase..."
+wait_for_builds "glibc"
+
+log "🚀 Phase 4: GCC Stage 2 and remaining tools"
+[[ -n "$GCC_VER" && -d "$GCC_DIR" ]] && start_build_job "gcc-stage2" "$GCC_VER" "gcc-build-stage2" "../$GCC_DIR/configure --prefix='$LOCAL_PREFIX' --enable-languages=c,c++ --disable-multilib --disable-bootstrap" "test -f '$LOCAL_PREFIX/bin/g++' && '$LOCAL_PREFIX/bin/g++' --version"
+
+[[ -n "$MAKE_VER" && -d "$MAKE_DIR" ]] && start_build_job "make" "$MAKE_VER" "$MAKE_DIR" "./configure --prefix='$LOCAL_PREFIX'" "'$LOCAL_PREFIX/bin/make' --version"
+
+[[ -n "$READLINE_VER" && -d "$READLINE_DIR" ]] && start_build_job "readline" "$READLINE_VER" "$READLINE_DIR" "./configure --prefix='$LOCAL_PREFIX'" "test -f '$LOCAL_PREFIX/lib/libreadline.so'"
+
+# Wait for all remaining builds
+log "⏳ Waiting for all builds to complete..."
+for name in "${!BUILD_PIDS[@]}"; do
+    if jobs -p | grep -q "${BUILD_PIDS[$name]}"; then
+        wait "${BUILD_PIDS[$name]}"
+        log "✅ Build completed: $name"
     fi
-fi
+done
 
-# 3. Glibc
-if check_installed "glibc" "test -f '$LOCAL_PREFIX/lib/libc.so'"; then
-    log "Skipping glibc build"
-else
-    if [[ -n "$GLIBC_VER" && -d "$GLIBC_DIR" ]]; then
-        safe_build "glibc" "glibc-build" "../$GLIBC_DIR/configure --prefix='$LOCAL_PREFIX' --disable-werror --enable-shared"
-    else
-        handle_error "glibc" "source directory not found or version detection failed"
-    fi
-fi
-
-# 4. GCC (stage 2 - full)
-if check_installed "GCC C++" "test -f '$LOCAL_PREFIX/bin/g++' && '$LOCAL_PREFIX/bin/g++' --version"; then
-    log "Skipping GCC stage 2 build"
-else
-    if [[ -n "$GCC_VER" && -d "$GCC_DIR" ]]; then
-        safe_build "GCC stage 2" "gcc-build-stage2" "../$GCC_DIR/configure --prefix='$LOCAL_PREFIX' --enable-languages=c,c++ --disable-multilib --disable-bootstrap"
-    else
-        handle_error "GCC stage 2" "source directory not found or version detection failed"
-    fi
-fi
-
-log "=== Building Build Tools ==="
-
-# Make
-if check_installed "make" "'$LOCAL_PREFIX/bin/make' --version"; then
-    log "Skipping make build"
-else
-    if [[ -n "$MAKE_VER" && -d "$MAKE_DIR" ]]; then
-        safe_build "make" "$MAKE_DIR" "./configure --prefix='$LOCAL_PREFIX'"
-    else
-        handle_error "make" "source directory not found or version detection failed"
-    fi
-fi
-
-# pkg-config
-if check_installed "pkg-config" "'$LOCAL_PREFIX/bin/pkg-config' --version"; then
-    log "Skipping pkg-config build"
-else
-    if [[ -n "$PKGCONFIG_VER" && -d "$PKGCONFIG_DIR" ]]; then
-        safe_build "pkg-config" "$PKGCONFIG_DIR" "./configure --prefix='$LOCAL_PREFIX' --with-internal-glib"
-    else
-        handle_error "pkg-config" "source directory not found or version detection failed"
-    fi
-fi
-
-# Autotools
-if check_installed "autoconf" "'$LOCAL_PREFIX/bin/autoconf' --version"; then
-    log "Skipping autoconf build"
-else
-    if [[ -n "$AUTOCONF_VER" && -d "$AUTOCONF_DIR" ]]; then
-        safe_build "autoconf" "$AUTOCONF_DIR" "./configure --prefix='$LOCAL_PREFIX'"
-    else
-        handle_error "autoconf" "source directory not found or version detection failed"
-    fi
-fi
-
-if check_installed "automake" "'$LOCAL_PREFIX/bin/automake' --version"; then
-    log "Skipping automake build"
-else
-    if [[ -n "$AUTOMAKE_VER" && -d "$AUTOMAKE_DIR" ]]; then
-        safe_build "automake" "$AUTOMAKE_DIR" "./configure --prefix='$LOCAL_PREFIX'"
-    else
-        handle_error "automake" "source directory not found or version detection failed"
-    fi
-fi
-
-if check_installed "libtool" "'$LOCAL_PREFIX/bin/libtool' --version"; then
-    log "Skipping libtool build"
-else
-    if [[ -n "$LIBTOOL_VER" && -d "$LIBTOOL_DIR" ]]; then
-        safe_build "libtool" "$LIBTOOL_DIR" "./configure --prefix='$LOCAL_PREFIX'"
-    else
-        handle_error "libtool" "source directory not found or version detection failed"
-    fi
-fi
-
-log "=== Building Libraries ==="
-
-# zlib
-if check_installed "zlib" "test -f '$LOCAL_PREFIX/lib/libz.so'"; then
-    log "Skipping zlib build"
-else
-    if [[ -n "$ZLIB_VER" && -d "$ZLIB_DIR" ]]; then
-        safe_build "zlib" "$ZLIB_DIR" "./configure --prefix='$LOCAL_PREFIX'"
-    else
-        handle_error "zlib" "source directory not found or version detection failed"
-    fi
-fi
-
-# SQLite
-if check_installed "SQLite" "test -f '$LOCAL_PREFIX/lib/libsqlite3.so'"; then
-    log "Skipping SQLite build"
-else
-    if [[ -n "$SQLITE_VER" && -d "$SQLITE_DIR" ]]; then
-        safe_build "SQLite" "$SQLITE_DIR" "./configure --prefix='$LOCAL_PREFIX'"
-    else
-        handle_error "SQLite" "source directory not found or version detection failed"
-    fi
-fi
-
-# OpenSSL
-if check_installed "OpenSSL" "test -f '$LOCAL_PREFIX/lib/libssl.so'"; then
-    log "Skipping OpenSSL build"
-else
-    if [[ -n "$OPENSSL_VER" && -d "$OPENSSL_DIR" ]]; then
-        safe_build "OpenSSL" "$OPENSSL_DIR" "./config --prefix='$LOCAL_PREFIX' --openssldir='$LOCAL_PREFIX/ssl'"
-    else
-        handle_error "OpenSSL" "source directory not found or version detection failed"
-    fi
-fi
-
-# ncurses
-if check_installed "ncurses" "test -f '$LOCAL_PREFIX/lib/libncurses.so'"; then
-    log "Skipping ncurses build"
-else
-    if [[ -n "$NCURSES_VER" && -d "$NCURSES_DIR" ]]; then
-        safe_build "ncurses" "$NCURSES_DIR" "./configure --prefix='$LOCAL_PREFIX' --with-shared --enable-widec"
-    else
-        handle_error "ncurses" "source directory not found or version detection failed"
-    fi
-fi
-
-# readline
-if check_installed "readline" "test -f '$LOCAL_PREFIX/lib/libreadline.so'"; then
-    log "Skipping readline build"
-else
-    if [[ -n "$READLINE_VER" && -d "$READLINE_DIR" ]]; then
-        safe_build "readline" "$READLINE_DIR" "./configure --prefix='$LOCAL_PREFIX'"
-    else
-        handle_error "readline" "source directory not found or version detection failed"
-    fi
+log "📊 Build Summary:"
+if [[ -f "$DOWNLOADS_DIR/.build_results" ]]; then
+    while IFS=: read -r status name extra; do
+        case $status in
+            "SUCCESS") log "  ✅ $name" ;;
+            "SKIPPED") log "  ⏭️  $name (already installed)" ;;
+            "FAILED") 
+                if [[ "$extra" == "missing_source" ]]; then
+                    log "  ❌ $name (missing source)"
+                else
+                    log "  ❌ $name (build failed)"
+                fi
+                ;;
+        esac
+    done < "$DOWNLOADS_DIR/.build_results"
 fi
 
 # Function to update .profile with toolchain environment variables
