@@ -110,7 +110,15 @@ get_gnu_latest_version() {
     local version
     
     # Try to get directory listing and extract latest version
-    if version=$(curl -s "$url" | grep -oP "${package}-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)" | sort -V | tail -1); then
+    # For GCC, look for directories; for others, look for tar files
+    local pattern
+    if [[ "$package" == "gcc" ]]; then
+        pattern="${package}-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=/)"
+    else
+        pattern="${package}-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)"
+    fi
+    
+    if version=$(curl -s "$url" | grep -oP "$pattern" | sort -V | tail -1); then
         if [[ -n "$version" ]]; then
             VERSION_CACHE[$cache_key]="$version"
             log "✓ Found $package version: $version" >&2
