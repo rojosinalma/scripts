@@ -107,6 +107,41 @@ cleanup_tui() {
     fi
 }
 
+# Cancel all background jobs
+cancel_all_jobs() {
+    log "🛑 Cancellation requested - killing all background jobs..."
+    
+    # Kill download jobs
+    for pid in "${DOWNLOAD_PIDS[@]}"; do
+        kill -TERM "$pid" 2>/dev/null || true
+    done
+    
+    # Kill extract jobs  
+    for pid in "${EXTRACT_PIDS[@]}"; do
+        kill -TERM "$pid" 2>/dev/null || true
+    done
+    
+    # Kill build jobs
+    for pid in "${BUILD_PIDS[@]}"; do
+        kill -TERM "$pid" 2>/dev/null || true
+    done
+    
+    # Wait a moment for graceful termination
+    sleep 2
+    
+    # Force kill any remaining jobs
+    for pid in "${DOWNLOAD_PIDS[@]}" "${EXTRACT_PIDS[@]}" "${BUILD_PIDS[@]}"; do
+        kill -KILL "$pid" 2>/dev/null || true
+    done
+    
+    log "❌ Build cancelled by user"
+    cleanup_tui
+    exit 130  # Standard exit code for Ctrl+C
+}
+
+# Set up signal handlers
+trap 'cancel_all_jobs' INT TERM
+
 # Update component status in TUI
 update_status() {
     local component="$1"
@@ -141,15 +176,27 @@ refresh_tui() {
     
     # Current phase indicator
     local current_phase="INITIALIZING"
-    if [[ -f "$DOWNLOADS_DIR/.download_results" ]] && ! jobs -r | grep -q .; then
-        if [[ -f "$DOWNLOADS_DIR/.build_results" ]]; then
-            current_phase="BUILDING"
-        else
-            current_phase="EXTRACTING"
-        fi
-    elif jobs -r | grep -q .; then
-        if [[ -f "$DOWNLOADS_DIR/.download_results" ]]; then
-            current_phase="DOWNLOADING"
+    
+    # Check what phase we're in based on status file and jobs
+    if [[ -f "$STATUS_FILE" ]]; then
+        if grep -q ":detecting_version" "$STATUS_FILE" 2>/dev/null; then
+            current_phase="DETECTING VERSIONS"
+        elif [[ -f "$DOWNLOADS_DIR/.download_results" ]] && ! jobs -r | grep -q .; then
+            if [[ -f "$DOWNLOADS_DIR/.build_results" ]]; then
+                current_phase="BUILDING"
+            else
+                current_phase="EXTRACTING"
+            fi
+        elif jobs -r | grep -q .; then
+            if [[ -f "$DOWNLOADS_DIR/.download_results" ]]; then
+                if grep -q ":downloading" "$STATUS_FILE" 2>/dev/null; then
+                    current_phase="DOWNLOADING"
+                elif grep -q ":extracting" "$STATUS_FILE" 2>/dev/null; then
+                    current_phase="EXTRACTING"
+                elif grep -q ":building" "$STATUS_FILE" 2>/dev/null; then
+                    current_phase="BUILDING"
+                fi
+            fi
         fi
     fi
     
@@ -173,6 +220,9 @@ refresh_tui() {
             local extra=$(echo "$status_info" | cut -d: -f3-)
             
             case "$status" in
+                "detecting_version") icon="🔍"; color="$(tput setaf 5)" ;;  # Magenta
+                "version_detected") icon="📋"; color="$(tput setaf 4)" ;;  # Blue
+                "version_failed") icon="⚠️"; color="$(tput setaf 3)" ;;  # Yellow
                 "downloading") icon="📥"; color="$(tput setaf 3)" ;;  # Yellow
                 "download_done") icon="✅"; color="$(tput setaf 2)" ;;  # Green
                 "download_failed") icon="❌"; color="$(tput setaf 1)" ;;  # Red
@@ -262,6 +312,8 @@ get_gnu_latest_version() {
         return 0
     fi
     
+    # Update TUI status
+    update_status "$package" "detecting_version"
     log "🔍 Fetching latest version for $package..." >&2
     
     local url="$GNU_MIRROR/$package/"
@@ -279,12 +331,14 @@ get_gnu_latest_version() {
     if version=$(curl -s "$url" | grep -oP "$pattern" | sort -V | tail -1); then
         if [[ -n "$version" ]]; then
             VERSION_CACHE[$cache_key]="$version"
+            update_status "$package" "version_detected" "$version"
             log "✓ Found $package version: $version" >&2
             echo "$version"
             return 0
         fi
     fi
     
+    update_status "$package" "version_failed" "using fallback"
     handle_error "$package" "version detection" >&2
     return 1
 }
@@ -330,18 +384,21 @@ get_latest_version() {
         return 0
     fi
     
+    update_status "$name" "detecting_version"
     log "🔍 Fetching latest version for $name..." >&2
     
     local version
     if version=$(curl -s "$base_url" | grep -oP "$pattern" | sort -V | tail -1); then
         if [[ -n "$version" ]]; then
             VERSION_CACHE[$cache_key]="$version"
+            update_status "$name" "version_detected" "$version"
             log "✓ Found $name version: $version" >&2
             echo "$version"
             return 0
         fi
     fi
     
+    update_status "$name" "version_failed" "using fallback"
     handle_error "$name" "version detection" >&2
     return 1
 }
@@ -355,6 +412,7 @@ get_sqlite_latest_version() {
         return 0
     fi
     
+    update_status "sqlite" "detecting_version"
     log "🔍 Fetching latest SQLite version..." >&2
     
     # SQLite uses a special naming convention
@@ -362,12 +420,14 @@ get_sqlite_latest_version() {
     if version_info=$(curl -s "https://www.sqlite.org/download.html" | grep -oP 'sqlite-autoconf-\K[0-9]+(?=\.tar\.gz)' | head -1); then
         if [[ -n "$version_info" ]]; then
             VERSION_CACHE[$cache_key]="$version_info"
+            update_status "sqlite" "version_detected" "$version_info"
             log "✓ Found SQLite version: $version_info" >&2
             echo "$version_info"
             return 0
         fi
     fi
     
+    update_status "sqlite" "version_failed" "using fallback"
     handle_error "SQLite" "version detection" >&2
     return 1
 }
@@ -495,6 +555,7 @@ safe_build() {
 }
 
 log "=== Detecting Latest Versions ==="
+refresh_tui  # Show initial TUI with "DETECTING VERSIONS" phase
 
 # Fallback versions in case detection fails
 declare -A FALLBACK_VERSIONS=(
@@ -515,23 +576,72 @@ declare -A FALLBACK_VERSIONS=(
 
 
 # Detect versions for all components with fallbacks
-BINUTILS_VER=$(get_gnu_latest_version "binutils" || echo "${FALLBACK_VERSIONS[binutils]}")
-GCC_VER=$(get_gnu_latest_version "gcc" || echo "${FALLBACK_VERSIONS[gcc]}")
-GLIBC_VER=$(get_gnu_latest_version "glibc" || echo "${FALLBACK_VERSIONS[glibc]}") 
-MAKE_VER=$(get_gnu_latest_version "make" || echo "${FALLBACK_VERSIONS[make]}")
-AUTOCONF_VER=$(get_gnu_latest_version "autoconf" || echo "${FALLBACK_VERSIONS[autoconf]}")
-AUTOMAKE_VER=$(get_gnu_latest_version "automake" || echo "${FALLBACK_VERSIONS[automake]}")
-LIBTOOL_VER=$(get_gnu_latest_version "libtool" || echo "${FALLBACK_VERSIONS[libtool]}")
-NCURSES_VER=$(get_gnu_latest_version "ncurses" || echo "${FALLBACK_VERSIONS[ncurses]}")
-READLINE_VER=$(get_gnu_latest_version "readline" || echo "${FALLBACK_VERSIONS[readline]}")
+# Start version detection with TUI updates
+start_version_detection() {
+    log "🔍 Starting version detection for all components..."
+    
+    # GNU components
+    BINUTILS_VER=$(get_gnu_latest_version "binutils" || echo "${FALLBACK_VERSIONS[binutils]}")
+    [[ "$BINUTILS_VER" == "${FALLBACK_VERSIONS[binutils]}" ]] && update_status "binutils" "version_failed" "using fallback $BINUTILS_VER"
+    sleep 0.5; refresh_tui
+    
+    GCC_VER=$(get_gnu_latest_version "gcc" || echo "${FALLBACK_VERSIONS[gcc]}")
+    [[ "$GCC_VER" == "${FALLBACK_VERSIONS[gcc]}" ]] && update_status "gcc" "version_failed" "using fallback $GCC_VER"
+    sleep 0.5; refresh_tui
+    
+    GLIBC_VER=$(get_gnu_latest_version "glibc" || echo "${FALLBACK_VERSIONS[glibc]}")
+    [[ "$GLIBC_VER" == "${FALLBACK_VERSIONS[glibc]}" ]] && update_status "glibc" "version_failed" "using fallback $GLIBC_VER"
+    sleep 0.5; refresh_tui
+    
+    MAKE_VER=$(get_gnu_latest_version "make" || echo "${FALLBACK_VERSIONS[make]}")
+    [[ "$MAKE_VER" == "${FALLBACK_VERSIONS[make]}" ]] && update_status "make" "version_failed" "using fallback $MAKE_VER"
+    sleep 0.5; refresh_tui
+    
+    AUTOCONF_VER=$(get_gnu_latest_version "autoconf" || echo "${FALLBACK_VERSIONS[autoconf]}")
+    [[ "$AUTOCONF_VER" == "${FALLBACK_VERSIONS[autoconf]}" ]] && update_status "autoconf" "version_failed" "using fallback $AUTOCONF_VER"
+    sleep 0.5; refresh_tui
+    
+    AUTOMAKE_VER=$(get_gnu_latest_version "automake" || echo "${FALLBACK_VERSIONS[automake]}")
+    [[ "$AUTOMAKE_VER" == "${FALLBACK_VERSIONS[automake]}" ]] && update_status "automake" "version_failed" "using fallback $AUTOMAKE_VER"
+    sleep 0.5; refresh_tui
+    
+    LIBTOOL_VER=$(get_gnu_latest_version "libtool" || echo "${FALLBACK_VERSIONS[libtool]}")
+    [[ "$LIBTOOL_VER" == "${FALLBACK_VERSIONS[libtool]}" ]] && update_status "libtool" "version_failed" "using fallback $LIBTOOL_VER"
+    sleep 0.5; refresh_tui
+    
+    NCURSES_VER=$(get_gnu_latest_version "ncurses" || echo "${FALLBACK_VERSIONS[ncurses]}")
+    [[ "$NCURSES_VER" == "${FALLBACK_VERSIONS[ncurses]}" ]] && update_status "ncurses" "version_failed" "using fallback $NCURSES_VER"
+    sleep 0.5; refresh_tui
+    
+    READLINE_VER=$(get_gnu_latest_version "readline" || echo "${FALLBACK_VERSIONS[readline]}")
+    [[ "$READLINE_VER" == "${FALLBACK_VERSIONS[readline]}" ]] && update_status "readline" "version_failed" "using fallback $READLINE_VER"
+    sleep 0.5; refresh_tui
+    
+    # Special version detections
+    PKGCONFIG_VER=$(get_latest_version "pkg-config" "https://pkgconfig.freedesktop.org/releases/" "pkg-config-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)" || echo "${FALLBACK_VERSIONS[pkg-config]}")
+    [[ "$PKGCONFIG_VER" == "${FALLBACK_VERSIONS[pkg-config]}" ]] && update_status "pkg-config" "version_failed" "using fallback $PKGCONFIG_VER"
+    sleep 0.5; refresh_tui
+    
+    ZLIB_VER=$(get_latest_version "zlib" "https://zlib.net/" "zlib-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)" || echo "${FALLBACK_VERSIONS[zlib]}")
+    [[ "$ZLIB_VER" == "${FALLBACK_VERSIONS[zlib]}" ]] && update_status "zlib" "version_failed" "using fallback $ZLIB_VER"
+    sleep 0.5; refresh_tui
+    
+    SQLITE_VER=$(get_sqlite_latest_version || echo "${FALLBACK_VERSIONS[sqlite]}")
+    [[ "$SQLITE_VER" == "${FALLBACK_VERSIONS[sqlite]}" ]] && update_status "sqlite" "version_failed" "using fallback $SQLITE_VER"
+    sleep 0.5; refresh_tui
+    
+    # OpenSSL - use fallback due to GitHub API rate limits
+    OPENSSL_VER="${FALLBACK_VERSIONS[openssl]}"
+    update_status "openssl" "version_failed" "GitHub API rate limited, using fallback $OPENSSL_VER"
+    log "⚠️  Using fallback OpenSSL version: $OPENSSL_VER (GitHub API rate limited)"
+    refresh_tui
+    
+    log "✅ Version detection complete"
+    sleep 1
+}
 
-# Special version detections with fallbacks
-PKGCONFIG_VER=$(get_latest_version "pkg-config" "https://pkgconfig.freedesktop.org/releases/" "pkg-config-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)" || echo "${FALLBACK_VERSIONS[pkg-config]}")
-ZLIB_VER=$(get_latest_version "zlib" "https://zlib.net/" "zlib-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)" || echo "${FALLBACK_VERSIONS[zlib]}")
-SQLITE_VER=$(get_sqlite_latest_version || echo "${FALLBACK_VERSIONS[sqlite]}")
-# OpenSSL - GitHub API may be rate limited, use fallback for now
-OPENSSL_VER="${FALLBACK_VERSIONS[openssl]}"
-log "⚠️  Using fallback OpenSSL version: $OPENSSL_VER (GitHub API rate limited)"
+# Run version detection with TUI
+start_version_detection
 
 # Create detailed versions manifest
 VERSIONS_LOG="$LOGS_DIR/versions_manifest.log"
