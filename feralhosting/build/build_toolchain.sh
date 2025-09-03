@@ -373,8 +373,59 @@ ZLIB_VER=$(get_latest_version "zlib" "https://zlib.net/" "zlib-\K[0-9]+\.[0-9]+(
 SQLITE_VER=$(get_sqlite_latest_version || echo "${FALLBACK_VERSIONS[sqlite]}")
 OPENSSL_VER=$(get_latest_version "openssl" "https://openssl-library.org/source/" "openssl-\K[0-9]+\.[0-9]+\.[0-9]+(?=\.tar)" || echo "${FALLBACK_VERSIONS[openssl]}")
 
-# Log which versions we'll be using
-log "Detected versions:"
+# Create detailed versions manifest
+VERSIONS_LOG="$LOGS_DIR/versions_manifest.log"
+{
+    echo "=== TOOLCHAIN BUILD VERSIONS MANIFEST ==="
+    echo "Generated: $(date)"
+    echo "Installation Prefix: $LOCAL_PREFIX"
+    echo "Build Host: $(uname -a)"
+    echo ""
+    echo "=== DETECTED VERSIONS ==="
+    echo "Binutils: $BINUTILS_VER"
+    echo "GCC: $GCC_VER"
+    echo "Glibc: $GLIBC_VER"
+    echo "Make: $MAKE_VER"
+    echo "Autoconf: $AUTOCONF_VER"
+    echo "Automake: $AUTOMAKE_VER"
+    echo "Libtool: $LIBTOOL_VER"
+    echo "pkg-config: $PKGCONFIG_VER"
+    echo "zlib: $ZLIB_VER"
+    echo "SQLite: $SQLITE_VER"
+    echo "OpenSSL: $OPENSSL_VER"
+    echo "ncurses: $NCURSES_VER"
+    echo "readline: $READLINE_VER"
+    echo ""
+    echo "=== FALLBACK VERSIONS (used if detection failed) ==="
+    for component in "${!FALLBACK_VERSIONS[@]}"; do
+        echo "$component: ${FALLBACK_VERSIONS[$component]}"
+    done | sort
+    echo ""
+    echo "=== DOWNLOAD URLS ==="
+    echo "Binutils: $GNU_MIRROR/binutils/binutils-${BINUTILS_VER}.tar.xz"
+    echo "GCC: $GNU_MIRROR/gcc/gcc-${GCC_VER}/gcc-${GCC_VER}.tar.xz"
+    echo "Glibc: $GNU_MIRROR/glibc/glibc-${GLIBC_VER}.tar.xz"
+    echo "Make: $GNU_MIRROR/make/make-${MAKE_VER}.tar.gz"
+    echo "Autoconf: $GNU_MIRROR/autoconf/autoconf-${AUTOCONF_VER}.tar.xz"
+    echo "Automake: $GNU_MIRROR/automake/automake-${AUTOMAKE_VER}.tar.xz"
+    echo "Libtool: $GNU_MIRROR/libtool/libtool-${LIBTOOL_VER}.tar.xz"
+    echo "pkg-config: https://pkgconfig.freedesktop.org/releases/pkg-config-${PKGCONFIG_VER}.tar.gz"
+    echo "zlib: https://zlib.net/zlib-${ZLIB_VER}.tar.gz"
+    echo "SQLite: https://www.sqlite.org/$(date +%Y)/sqlite-autoconf-${SQLITE_VER}.tar.gz"
+    echo "OpenSSL: https://openssl-library.org/source/openssl-${OPENSSL_VER}.tar.gz"
+    echo "ncurses: $GNU_MIRROR/ncurses/ncurses-${NCURSES_VER}.tar.gz"
+    echo "readline: $GNU_MIRROR/readline/readline-${READLINE_VER}.tar.gz"
+    echo ""
+    echo "=== BUILD CONFIGURATION ==="
+    echo "Parallel Downloads: Yes"
+    echo "Parallel Extractions: Yes"
+    echo "Dependency-Aware Builds: Yes"
+    echo "Max Parallel Jobs (make): $(nproc)"
+    echo ""
+} > "$VERSIONS_LOG"
+
+# Log which versions we'll be using (to main log and console)
+log "Detected versions (detailed manifest: $VERSIONS_LOG):"
 log "  Binutils: $BINUTILS_VER"
 log "  GCC: $GCC_VER"
 log "  Glibc: $GLIBC_VER"
@@ -406,16 +457,29 @@ start_download_job() {
         return 0
     fi
     
+    # Create individual log file for this download
+    local download_log="$LOGS_DIR/download_${name}.log"
+    
     {
+        # Redirect all output to individual log file
+        exec > "$download_log" 2>&1
+        
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting download: $name"
+        echo "URL: $url"
+        echo "File: $filename"
+        echo "----------------------------------------"
+        
         if download_if_missing "$url"; then
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Download successful: $name"
             echo "SUCCESS:$name:$filename" >> "$DOWNLOADS_DIR/.download_results"
         else
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ Download failed: $name"
             echo "FAILED:$name:$filename" >> "$DOWNLOADS_DIR/.download_results"
         fi
     } &
     
     DOWNLOAD_PIDS[$name]=$!
-    log "🔄 Started download: $name (PID: ${DOWNLOAD_PIDS[$name]})"
+    log "🔄 Started download: $name (PID: ${DOWNLOAD_PIDS[$name]}) → $download_log"
 }
 
 # Initialize results file
@@ -525,15 +589,29 @@ start_extract_job() {
     local filename=$2
     local dirname=$3
     
+    # Create individual log file for this extraction
+    local extract_log="$LOGS_DIR/extract_${name}.log"
+    
     {
+        # Redirect all output to individual log file
+        exec > "$extract_log" 2>&1
+        
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting extraction: $name"
+        echo "File: $filename"
+        echo "Directory: $dirname"
+        echo "----------------------------------------"
+        
         if safe_extract "$filename" "$dirname"; then
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Extraction successful: $name"
             echo "EXTRACT_SUCCESS:$name" >> "$DOWNLOADS_DIR/.extract_results"
         else
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ Extraction failed: $name"
             echo "EXTRACT_FAILED:$name" >> "$DOWNLOADS_DIR/.extract_results"
         fi
     } &
     
     EXTRACT_PIDS[$name]=$!
+    log "🔄 Started extraction: $name → $extract_log"
 }
 
 # Initialize extract results
@@ -580,25 +658,41 @@ start_build_job() {
     local configure_args=$4
     local check_cmd=$5
     
+    # Create individual log file for this build
+    local build_log="$LOGS_DIR/build_${name}.log"
+    
     {
+        # Redirect all output to individual log file
+        exec > "$build_log" 2>&1
+        
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting build: $name"
+        echo "Component: $component"
+        echo "Build directory: $build_dir"
+        echo "Configure args: $configure_args"
+        echo "Check command: $check_cmd"
+        echo "----------------------------------------"
+        
         if eval "$check_cmd" &>/dev/null; then
-            log "✓ $name already installed, skipping..." >&2
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✓ $name already installed, skipping..."
             echo "SKIPPED:$name" >> "$DOWNLOADS_DIR/.build_results"
         else
             if [[ -n "$component" && -d "$build_dir" ]]; then
                 if safe_build "$name" "$build_dir" "$configure_args"; then
+                    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Build successful: $name"
                     echo "SUCCESS:$name" >> "$DOWNLOADS_DIR/.build_results"
                 else
+                    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ Build failed: $name"
                     echo "FAILED:$name" >> "$DOWNLOADS_DIR/.build_results"
                 fi
             else
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ Missing source directory: $name"
                 echo "FAILED:$name:missing_source" >> "$DOWNLOADS_DIR/.build_results"
             fi
         fi
     } &
     
     BUILD_PIDS[$name]=$!
-    log "🔄 Started build: $name (PID: ${BUILD_PIDS[$name]})"
+    log "🔄 Started build: $name (PID: ${BUILD_PIDS[$name]}) → $build_log"
 }
 
 # Wait for specific builds to complete
@@ -674,6 +768,107 @@ for name in "${!BUILD_PIDS[@]}"; do
     fi
 done
 
+# Create post-build verification log
+INSTALLED_LOG="$LOGS_DIR/installed_versions.log"
+{
+    echo "=== INSTALLED TOOLCHAIN VERSIONS ==="
+    echo "Generated: $(date)"
+    echo "Installation Prefix: $LOCAL_PREFIX"
+    echo ""
+    echo "=== INSTALLED COMPONENTS ==="
+    
+    # Check each component and get actual installed version
+    if [[ -f "$LOCAL_PREFIX/bin/ld" ]]; then
+        echo "Binutils: $("$LOCAL_PREFIX/bin/ld" --version | head -1 | grep -oP '\d+\.\d+(\.\d+)?')"
+    else
+        echo "Binutils: NOT INSTALLED"
+    fi
+    
+    if [[ -f "$LOCAL_PREFIX/bin/gcc" ]]; then
+        echo "GCC: $("$LOCAL_PREFIX/bin/gcc" --version | head -1 | grep -oP '\d+\.\d+(\.\d+)?')"
+    else
+        echo "GCC: NOT INSTALLED"
+    fi
+    
+    if [[ -f "$LOCAL_PREFIX/lib/libc.so" ]]; then
+        echo "Glibc: $(strings "$LOCAL_PREFIX/lib/libc.so" | grep -E '^GNU C Library.*version' | head -1 || echo "Version detection failed")"
+    else
+        echo "Glibc: NOT INSTALLED"
+    fi
+    
+    if [[ -f "$LOCAL_PREFIX/bin/make" ]]; then
+        echo "Make: $("$LOCAL_PREFIX/bin/make" --version | head -1 | grep -oP '\d+\.\d+(\.\d+)?')"
+    else
+        echo "Make: NOT INSTALLED"
+    fi
+    
+    if [[ -f "$LOCAL_PREFIX/bin/autoconf" ]]; then
+        echo "Autoconf: $("$LOCAL_PREFIX/bin/autoconf" --version | head -1 | grep -oP '\d+\.\d+(\.\d+)?')"
+    else
+        echo "Autoconf: NOT INSTALLED"
+    fi
+    
+    if [[ -f "$LOCAL_PREFIX/bin/automake" ]]; then
+        echo "Automake: $("$LOCAL_PREFIX/bin/automake" --version | head -1 | grep -oP '\d+\.\d+(\.\d+)?')"
+    else
+        echo "Automake: NOT INSTALLED"
+    fi
+    
+    if [[ -f "$LOCAL_PREFIX/bin/libtool" ]]; then
+        echo "Libtool: $("$LOCAL_PREFIX/bin/libtool" --version | head -1 | grep -oP '\d+\.\d+(\.\d+)?')"
+    else
+        echo "Libtool: NOT INSTALLED"
+    fi
+    
+    if [[ -f "$LOCAL_PREFIX/bin/pkg-config" ]]; then
+        echo "pkg-config: $("$LOCAL_PREFIX/bin/pkg-config" --version)"
+    else
+        echo "pkg-config: NOT INSTALLED"
+    fi
+    
+    if [[ -f "$LOCAL_PREFIX/lib/libz.so" ]]; then
+        echo "zlib: $(strings "$LOCAL_PREFIX/lib/libz.so" | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?$' | head -1 || echo "Version detection failed")"
+    else
+        echo "zlib: NOT INSTALLED"
+    fi
+    
+    if [[ -f "$LOCAL_PREFIX/lib/libsqlite3.so" ]]; then
+        echo "SQLite: $(strings "$LOCAL_PREFIX/lib/libsqlite3.so" | grep -E '^3\.[0-9]+\.[0-9]+$' | head -1 || echo "Version detection failed")"
+    else
+        echo "SQLite: NOT INSTALLED"
+    fi
+    
+    if [[ -f "$LOCAL_PREFIX/bin/openssl" ]]; then
+        echo "OpenSSL: $("$LOCAL_PREFIX/bin/openssl" version | grep -oP '\d+\.\d+\.\d+')"
+    else
+        echo "OpenSSL: NOT INSTALLED"
+    fi
+    
+    if [[ -f "$LOCAL_PREFIX/lib/libncurses.so" ]]; then
+        echo "ncurses: $(strings "$LOCAL_PREFIX/lib/libncurses.so" | grep -E '^[0-9]+\.[0-9]+$' | head -1 || echo "Version detection failed")"
+    else
+        echo "ncurses: NOT INSTALLED"
+    fi
+    
+    if [[ -f "$LOCAL_PREFIX/lib/libreadline.so" ]]; then
+        echo "readline: $(strings "$LOCAL_PREFIX/lib/libreadline.so" | grep -E '^[0-9]+\.[0-9]+$' | head -1 || echo "Version detection failed")"
+    else
+        echo "readline: NOT INSTALLED"
+    fi
+    
+    echo ""
+    echo "=== ENVIRONMENT SETUP ==="
+    echo "PATH includes: $LOCAL_PREFIX/bin"
+    echo "LD_LIBRARY_PATH includes: $LOCAL_PREFIX/lib"
+    echo "PKG_CONFIG_PATH includes: $LOCAL_PREFIX/lib/pkgconfig"
+    echo ""
+    echo "=== USAGE ==="
+    echo "To use this toolchain, run:"
+    echo "  source ~/.profile"
+    echo "  # or start a new shell session"
+    echo ""
+} > "$INSTALLED_LOG"
+
 log "📊 Build Summary:"
 if [[ -f "$DOWNLOADS_DIR/.build_results" ]]; then
     while IFS=: read -r status name extra; do
@@ -690,6 +885,15 @@ if [[ -f "$DOWNLOADS_DIR/.build_results" ]]; then
         esac
     done < "$DOWNLOADS_DIR/.build_results"
 fi
+
+log "📋 Detailed logs available:"
+log "  📁 All logs: $LOGS_DIR/"
+log "  📝 Main build log: $LOG_FILE"
+log "  📊 Versions manifest: $VERSIONS_LOG"
+log "  ✅ Installed versions: $INSTALLED_LOG"
+log "  📥 Individual download logs: $LOGS_DIR/download_*.log"
+log "  📦 Individual extraction logs: $LOGS_DIR/extract_*.log"
+log "  🔨 Individual build logs: $LOGS_DIR/build_*.log"
 
 # Function to update .profile with toolchain environment variables
 update_profile() {
