@@ -81,6 +81,30 @@ handle_error() {
 TUI_ENABLED=true
 STATUS_FILE="$LOGS_DIR/.status"
 
+# Background TUI refresh daemon
+start_tui_daemon() {
+    if [[ "$TUI_ENABLED" != "true" ]]; then
+        return
+    fi
+    
+    {
+        while [[ -f "$STATUS_FILE" ]]; do
+            sleep 3  # Refresh every 3 seconds
+                done
+    } &
+    
+    TUI_DAEMON_PID=$!
+    log "Started TUI refresh daemon (PID: $TUI_DAEMON_PID)"
+}
+
+# Stop TUI daemon
+stop_tui_daemon() {
+    if [[ -n "${TUI_DAEMON_PID:-}" ]]; then
+        kill "$TUI_DAEMON_PID" 2>/dev/null || true
+        wait "$TUI_DAEMON_PID" 2>/dev/null || true
+    fi
+}
+
 # Initialize TUI system
 init_tui() {
     if [[ "$TUI_ENABLED" == "true" ]] && command -v tput >/dev/null 2>&1; then
@@ -93,6 +117,9 @@ init_tui() {
         
         # Set up trap to restore terminal on exit
         trap 'cleanup_tui' EXIT INT TERM
+        
+        # Start background refresh daemon
+        start_tui_daemon
     else
         TUI_ENABLED=false
     fi
@@ -101,6 +128,7 @@ init_tui() {
 # Cleanup TUI on exit
 cleanup_tui() {
     if [[ "$TUI_ENABLED" == "true" ]]; then
+        stop_tui_daemon
         tput cnorm  # Show cursor
         tput sgr0   # Reset colors
         exec 1>&3 2>&4  # Restore stdout/stderr
@@ -110,6 +138,9 @@ cleanup_tui() {
 # Cancel all background jobs
 cancel_all_jobs() {
     log "🛑 Cancellation requested - killing all background jobs..."
+    
+    # Stop TUI daemon first
+    stop_tui_daemon
     
     # Kill download jobs
     for pid in "${DOWNLOAD_PIDS[@]}"; do
@@ -148,12 +179,13 @@ update_status() {
     local status="$2"
     local extra="${3:-}"
     
-    # Update status file
-    grep -v "^$component:" "$STATUS_FILE" > "$STATUS_FILE.tmp" 2>/dev/null || true
-    echo "$component:$status:$extra" >> "$STATUS_FILE.tmp"
-    mv "$STATUS_FILE.tmp" "$STATUS_FILE"
-    
-    # Don't refresh immediately to avoid flickering - let the main loops handle it
+    # Update status file atomically
+    (
+        flock -x 9
+        grep -v "^$component:" "$STATUS_FILE" 2>/dev/null || true
+        echo "$component:$status:$extra"
+    ) 9>"$STATUS_FILE.lock" > "$STATUS_FILE.tmp" && mv "$STATUS_FILE.tmp" "$STATUS_FILE"
+    rm -f "$STATUS_FILE.lock"
 }
 
 # Refresh the TUI display
@@ -593,58 +625,57 @@ start_version_detection() {
     # GNU components
     BINUTILS_VER=$(get_gnu_latest_version "binutils" || echo "${FALLBACK_VERSIONS[binutils]}")
     [[ "$BINUTILS_VER" == "${FALLBACK_VERSIONS[binutils]}" ]] && update_status "binutils" "version_failed" "using fallback $BINUTILS_VER"
-    sleep 0.5; refresh_tui
+    sleep 0.5
     
     GCC_VER=$(get_gnu_latest_version "gcc" || echo "${FALLBACK_VERSIONS[gcc]}")
     [[ "$GCC_VER" == "${FALLBACK_VERSIONS[gcc]}" ]] && update_status "gcc" "version_failed" "using fallback $GCC_VER"
-    sleep 0.5; refresh_tui
+    sleep 0.5
     
     GLIBC_VER=$(get_gnu_latest_version "glibc" || echo "${FALLBACK_VERSIONS[glibc]}")
     [[ "$GLIBC_VER" == "${FALLBACK_VERSIONS[glibc]}" ]] && update_status "glibc" "version_failed" "using fallback $GLIBC_VER"
-    sleep 0.5; refresh_tui
+    sleep 0.5
     
     MAKE_VER=$(get_gnu_latest_version "make" || echo "${FALLBACK_VERSIONS[make]}")
     [[ "$MAKE_VER" == "${FALLBACK_VERSIONS[make]}" ]] && update_status "make" "version_failed" "using fallback $MAKE_VER"
-    sleep 0.5; refresh_tui
+    sleep 0.5
     
     AUTOCONF_VER=$(get_gnu_latest_version "autoconf" || echo "${FALLBACK_VERSIONS[autoconf]}")
     [[ "$AUTOCONF_VER" == "${FALLBACK_VERSIONS[autoconf]}" ]] && update_status "autoconf" "version_failed" "using fallback $AUTOCONF_VER"
-    sleep 0.5; refresh_tui
+    sleep 0.5
     
     AUTOMAKE_VER=$(get_gnu_latest_version "automake" || echo "${FALLBACK_VERSIONS[automake]}")
     [[ "$AUTOMAKE_VER" == "${FALLBACK_VERSIONS[automake]}" ]] && update_status "automake" "version_failed" "using fallback $AUTOMAKE_VER"
-    sleep 0.5; refresh_tui
+    sleep 0.5
     
     LIBTOOL_VER=$(get_gnu_latest_version "libtool" || echo "${FALLBACK_VERSIONS[libtool]}")
     [[ "$LIBTOOL_VER" == "${FALLBACK_VERSIONS[libtool]}" ]] && update_status "libtool" "version_failed" "using fallback $LIBTOOL_VER"
-    sleep 0.5; refresh_tui
+    sleep 0.5
     
     NCURSES_VER=$(get_gnu_latest_version "ncurses" || echo "${FALLBACK_VERSIONS[ncurses]}")
     [[ "$NCURSES_VER" == "${FALLBACK_VERSIONS[ncurses]}" ]] && update_status "ncurses" "version_failed" "using fallback $NCURSES_VER"
-    sleep 0.5; refresh_tui
+    sleep 0.5
     
     READLINE_VER=$(get_gnu_latest_version "readline" || echo "${FALLBACK_VERSIONS[readline]}")
     [[ "$READLINE_VER" == "${FALLBACK_VERSIONS[readline]}" ]] && update_status "readline" "version_failed" "using fallback $READLINE_VER"
-    sleep 0.5; refresh_tui
+    sleep 0.5
     
     # Special version detections
     PKGCONFIG_VER=$(get_latest_version "pkg-config" "https://pkgconfig.freedesktop.org/releases/" "pkg-config-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)" || echo "${FALLBACK_VERSIONS[pkg-config]}")
     [[ "$PKGCONFIG_VER" == "${FALLBACK_VERSIONS[pkg-config]}" ]] && update_status "pkg-config" "version_failed" "using fallback $PKGCONFIG_VER"
-    sleep 0.5; refresh_tui
+    sleep 0.5
     
     ZLIB_VER=$(get_latest_version "zlib" "https://zlib.net/" "zlib-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)" || echo "${FALLBACK_VERSIONS[zlib]}")
     [[ "$ZLIB_VER" == "${FALLBACK_VERSIONS[zlib]}" ]] && update_status "zlib" "version_failed" "using fallback $ZLIB_VER"
-    sleep 0.5; refresh_tui
+    sleep 0.5
     
     SQLITE_VER=$(get_sqlite_latest_version || echo "${FALLBACK_VERSIONS[sqlite]}")
     [[ "$SQLITE_VER" == "${FALLBACK_VERSIONS[sqlite]}" ]] && update_status "sqlite" "version_failed" "using fallback $SQLITE_VER"
-    sleep 0.5; refresh_tui
+    sleep 0.5
     
     # OpenSSL - use fallback due to GitHub API rate limits
     OPENSSL_VER="${FALLBACK_VERSIONS[openssl]}"
     update_status "openssl" "version_failed" "GitHub API rate limited, using fallback $OPENSSL_VER"
     log "⚠️  Using fallback OpenSSL version: $OPENSSL_VER (GitHub API rate limited)"
-    refresh_tui
     
     log "✅ Version detection complete"
     sleep 1
@@ -862,7 +893,6 @@ while [[ ${#DOWNLOAD_PIDS[@]} -gt 0 ]]; do
         fi
     done
     sleep 2
-    refresh_tui
 done
 
 # Check results and handle SQLite fallback if needed
@@ -942,7 +972,6 @@ while [[ ${#EXTRACT_PIDS[@]} -gt 0 ]]; do
         fi
     done
     sleep 2
-    refresh_tui
 done
 
 # Download GCC prerequisites after GCC is extracted
@@ -1079,10 +1108,11 @@ while [[ ${#BUILD_PIDS[@]} -gt 0 ]]; do
             wait "${BUILD_PIDS[$name]}"
             unset BUILD_PIDS[$name]
             log "✅ Build completed: $name"
+            # Force immediate refresh for build completions
+            refresh_tui
         fi
     done
-    sleep 2  # Slightly longer delay for builds
-    refresh_tui
+    sleep 1
 done
 
 # Create post-build verification log
@@ -1212,7 +1242,9 @@ log "  📥 Individual download logs: $LOGS_DIR/download_*.log"
 log "  📦 Individual extraction logs: $LOGS_DIR/extract_*.log"
 log "  🔨 Individual build logs: $LOGS_DIR/build_*.log"
 
-# Final TUI refresh to show completed state
+# Stop the TUI daemon and do final refresh
+stop_tui_daemon
+sleep 1  # Let any final status updates complete
 refresh_tui
 
 # Wait a moment for user to see final state before restoring terminal
