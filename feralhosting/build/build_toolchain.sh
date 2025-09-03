@@ -253,6 +253,7 @@ refresh_tui() {
     local completed=0
     local failed=0
     local in_progress=0
+    local progress_percent=0
     
     if [[ -f "$STATUS_FILE" ]]; then
         completed=$(grep -c ":build_done:\|:skipped:" "$STATUS_FILE" 2>/dev/null || echo 0)
@@ -260,7 +261,11 @@ refresh_tui() {
         in_progress=$(grep -c ":downloading:\|:extracting:\|:building:" "$STATUS_FILE" 2>/dev/null || echo 0)
     fi
     
-    local progress_percent=$((completed * 100 / total))
+    # Avoid division by zero
+    if [[ $total -gt 0 ]]; then
+        progress_percent=$((completed * 100 / total))
+    fi
+    
     printf "│ Progress: %3d%% (%d/%d complete, %d failed, %d in progress)%-17s │\n" \
            "$progress_percent" "$completed" "$total" "$failed" "$in_progress" ""
     
