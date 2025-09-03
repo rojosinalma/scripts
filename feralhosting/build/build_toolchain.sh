@@ -363,7 +363,7 @@ READLINE_VER=$(get_gnu_latest_version "readline" || echo "${FALLBACK_VERSIONS[re
 PKGCONFIG_VER=$(get_latest_version "pkg-config" "https://pkgconfig.freedesktop.org/releases/" "pkg-config-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)" || echo "${FALLBACK_VERSIONS[pkg-config]}")
 ZLIB_VER=$(get_latest_version "zlib" "https://zlib.net/" "zlib-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)" || echo "${FALLBACK_VERSIONS[zlib]}")
 SQLITE_VER=$(get_sqlite_latest_version || echo "${FALLBACK_VERSIONS[sqlite]}")
-OPENSSL_VER=$(get_latest_version "openssl" "https://www.openssl.org/source/" "openssl-\K[0-9]+\.[0-9]+\.[0-9]+(?=\.tar)" || echo "${FALLBACK_VERSIONS[openssl]}")
+OPENSSL_VER=$(get_latest_version "openssl" "https://openssl-library.org/source/" "openssl-\K[0-9]+\.[0-9]+\.[0-9]+(?=\.tar)" || echo "${FALLBACK_VERSIONS[openssl]}")
 
 # Log which versions we'll be using
 log "Detected versions:"
@@ -485,7 +485,7 @@ fi
 if [[ -n "$OPENSSL_VER" ]]; then
     OPENSSL_FILE="openssl-${OPENSSL_VER}.tar.gz"
     OPENSSL_DIR="openssl-${OPENSSL_VER}"
-    if download_if_missing "https://www.openssl.org/source/$OPENSSL_FILE"; then
+    if download_if_missing "https://openssl-library.org/source/$OPENSSL_FILE"; then
         safe_extract "$OPENSSL_FILE" "$OPENSSL_DIR"
     fi
 fi
