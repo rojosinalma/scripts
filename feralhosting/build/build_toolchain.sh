@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Set installation prefix
+LOCAL_PREFIX="$HOME/.local/toolchain"
+
 cd "$HOME/downloads"
 
 # GNU mirrors
@@ -11,7 +14,7 @@ KERNEL_MIRROR="https://www.kernel.org/pub"
 check_installed() {
     local package=$1
     local check_command=$2
-    
+
     if eval "$check_command" &>/dev/null; then
         echo "✓ $package already installed, skipping..."
         return 0
@@ -25,7 +28,7 @@ check_installed() {
 download_if_missing() {
     local url=$1
     local filename=$(basename "$url")
-    
+
     if [[ -f "$filename" ]]; then
         echo "✓ $filename already downloaded"
     else
@@ -188,4 +191,156 @@ fi
 if check_installed "automake" "'$LOCAL_PREFIX/bin/automake' --version"; then
     echo "Skipping automake build"
 else
-    echo "Building automake..
+    echo "Building automake..."
+    cd automake-1.16.5
+    ./configure --prefix="$LOCAL_PREFIX"
+    make -j$(nproc)
+    make install
+    cd ..
+fi
+
+if check_installed "libtool" "'$LOCAL_PREFIX/bin/libtool' --version"; then
+    echo "Skipping libtool build"
+else
+    echo "Building libtool..."
+    cd libtool-2.4.7
+    ./configure --prefix="$LOCAL_PREFIX"
+    make -j$(nproc)
+    make install
+    cd ..
+fi
+
+echo "=== Building Libraries ==="
+
+# zlib
+if check_installed "zlib" "test -f '$LOCAL_PREFIX/lib/libz.so'"; then
+    echo "Skipping zlib build"
+else
+    echo "Building zlib..."
+    cd zlib-1.3
+    ./configure --prefix="$LOCAL_PREFIX"
+    make -j$(nproc)
+    make install
+    cd ..
+fi
+
+# SQLite
+if check_installed "SQLite" "test -f '$LOCAL_PREFIX/lib/libsqlite3.so'"; then
+    echo "Skipping SQLite build"
+else
+    echo "Building SQLite..."
+    cd sqlite-autoconf-3440200
+    ./configure --prefix="$LOCAL_PREFIX"
+    make -j$(nproc)
+    make install
+    cd ..
+fi
+
+# OpenSSL
+if check_installed "OpenSSL" "test -f '$LOCAL_PREFIX/lib/libssl.so'"; then
+    echo "Skipping OpenSSL build"
+else
+    echo "Building OpenSSL..."
+    cd openssl-3.1.4
+    ./config --prefix="$LOCAL_PREFIX" --openssldir="$LOCAL_PREFIX/ssl"
+    make -j$(nproc)
+    make install
+    cd ..
+fi
+
+# ncurses
+if check_installed "ncurses" "test -f '$LOCAL_PREFIX/lib/libncurses.so'"; then
+    echo "Skipping ncurses build"
+else
+    echo "Building ncurses..."
+    cd ncurses-6.4
+    ./configure --prefix="$LOCAL_PREFIX" --with-shared --enable-widec
+    make -j$(nproc)
+    make install
+    cd ..
+fi
+
+# readline
+if check_installed "readline" "test -f '$LOCAL_PREFIX/lib/libreadline.so'"; then
+    echo "Skipping readline build"
+else
+    echo "Building readline..."
+    cd readline-8.2
+    ./configure --prefix="$LOCAL_PREFIX"
+    make -j$(nproc)
+    make install
+    cd ..
+fi
+
+# Function to update .profile with toolchain environment variables
+update_profile() {
+    local profile_file="$HOME/.profile"
+    local marker_start="# --- Custom Toolchain Environment (AUTO-GENERATED) ---"
+    local marker_end="# --- End Custom Toolchain Environment ---"
+
+    # Create .profile if it doesn't exist
+    if [[ ! -f "$profile_file" ]]; then
+        echo "Creating .profile..."
+        cat > "$profile_file" << 'EOF'
+# ~/.profile: executed by the command interpreter for login shells.
+# This file is not read by bash(1), if ~/.bash_profile or ~/.bash_login
+# exists.
+
+# if running bash
+if [ -n "$BASH_VERSION" ]; then
+    # include .bashrc if it exists
+    if [ -f "$HOME/.bashrc" ]; then
+        . "$HOME/.bashrc"
+    fi
+fi
+
+# set PATH so it includes user's private bin if it exists
+if [ -d "$HOME/bin" ] ; then
+    PATH="$HOME/bin:$PATH"
+fi
+
+# set PATH so it includes user's private bin if it exists
+if [ -d "$HOME/.local/bin" ] ; then
+    PATH="$HOME/.local/bin:$PATH"
+fi
+EOF
+    fi
+
+    # Read current .profile content
+    local profile_content
+    profile_content=$(cat "$profile_file")
+
+    # Remove existing toolchain section if it exists
+    if echo "$profile_content" | grep -q "$marker_start"; then
+        echo "Updating existing toolchain environment in .profile..."
+        # Remove the old section
+        profile_content=$(echo "$profile_content" | sed "/$marker_start/,/$marker_end/d")
+    else
+        echo "Adding toolchain environment to .profile..."
+    fi
+
+    # Write updated content with new toolchain environment
+    cat > "$profile_file" << EOF
+$profile_content
+
+$marker_start
+# Custom toolchain built from source
+export LOCAL_PREFIX="$LOCAL_PREFIX"
+export PATH="$LOCAL_PREFIX/bin:\$PATH"
+export LD_LIBRARY_PATH="$LOCAL_PREFIX/lib:\$LD_LIBRARY_PATH"
+export PKG_CONFIG_PATH="$LOCAL_PREFIX/lib/pkgconfig:\$PKG_CONFIG_PATH"
+export CPPFLAGS="-I$LOCAL_PREFIX/include \$CPPFLAGS"
+export LDFLAGS="-L$LOCAL_PREFIX/lib \$LDFLAGS"
+export MANPATH="$LOCAL_PREFIX/share/man:\$MANPATH"
+$marker_end
+EOF
+
+    echo "✓ Updated .profile with toolchain environment variables"
+    echo "✓ Run 'source ~/.profile' or start a new shell to use the new toolchain"
+}
+
+echo "=== Toolchain build complete! ==="
+echo "Installation directory: $LOCAL_PREFIX"
+
+# Update .profile with environment variables
+update_profile
