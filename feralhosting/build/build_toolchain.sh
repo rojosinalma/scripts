@@ -347,37 +347,39 @@ declare -A FALLBACK_VERSIONS=(
     ["openssl"]="3.1.4"
 )
 
-# Function to get version with fallback
-get_version_with_fallback() {
-    local name=$1
-    local get_version_func=$2
-    shift 2
-    local version
-    
-    if version=$(eval "$get_version_func" "$@"); then
-        echo "$version"
-    else
-        log "⚠️  Using fallback version for $name: ${FALLBACK_VERSIONS[$name]}"
-        echo "${FALLBACK_VERSIONS[$name]}"
-    fi
-}
 
 # Detect versions for all components with fallbacks
-BINUTILS_VER=$(get_version_with_fallback "binutils" "get_gnu_latest_version" "binutils")
-GCC_VER=$(get_version_with_fallback "gcc" "get_gnu_latest_version" "gcc")
-GLIBC_VER=$(get_version_with_fallback "glibc" "get_gnu_latest_version" "glibc") 
-MAKE_VER=$(get_version_with_fallback "make" "get_gnu_latest_version" "make")
-AUTOCONF_VER=$(get_version_with_fallback "autoconf" "get_gnu_latest_version" "autoconf")
-AUTOMAKE_VER=$(get_version_with_fallback "automake" "get_gnu_latest_version" "automake")
-LIBTOOL_VER=$(get_version_with_fallback "libtool" "get_gnu_latest_version" "libtool")
-NCURSES_VER=$(get_version_with_fallback "ncurses" "get_gnu_latest_version" "ncurses")
-READLINE_VER=$(get_version_with_fallback "readline" "get_gnu_latest_version" "readline")
+BINUTILS_VER=$(get_gnu_latest_version "binutils" || echo "${FALLBACK_VERSIONS[binutils]}")
+GCC_VER=$(get_gnu_latest_version "gcc" || echo "${FALLBACK_VERSIONS[gcc]}")
+GLIBC_VER=$(get_gnu_latest_version "glibc" || echo "${FALLBACK_VERSIONS[glibc]}") 
+MAKE_VER=$(get_gnu_latest_version "make" || echo "${FALLBACK_VERSIONS[make]}")
+AUTOCONF_VER=$(get_gnu_latest_version "autoconf" || echo "${FALLBACK_VERSIONS[autoconf]}")
+AUTOMAKE_VER=$(get_gnu_latest_version "automake" || echo "${FALLBACK_VERSIONS[automake]}")
+LIBTOOL_VER=$(get_gnu_latest_version "libtool" || echo "${FALLBACK_VERSIONS[libtool]}")
+NCURSES_VER=$(get_gnu_latest_version "ncurses" || echo "${FALLBACK_VERSIONS[ncurses]}")
+READLINE_VER=$(get_gnu_latest_version "readline" || echo "${FALLBACK_VERSIONS[readline]}")
 
 # Special version detections with fallbacks
-PKGCONFIG_VER=$(get_version_with_fallback "pkg-config" "get_latest_version" "pkg-config" "https://pkgconfig.freedesktop.org/releases/" "pkg-config-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)")
-ZLIB_VER=$(get_version_with_fallback "zlib" "get_latest_version" "zlib" "https://zlib.net/" "zlib-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)")
-SQLITE_VER=$(get_version_with_fallback "sqlite" "get_sqlite_latest_version")
-OPENSSL_VER=$(get_version_with_fallback "openssl" "get_latest_version" "openssl" "https://www.openssl.org/source/" "openssl-\K[0-9]+\.[0-9]+\.[0-9]+(?=\.tar)")
+PKGCONFIG_VER=$(get_latest_version "pkg-config" "https://pkgconfig.freedesktop.org/releases/" "pkg-config-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)" || echo "${FALLBACK_VERSIONS[pkg-config]}")
+ZLIB_VER=$(get_latest_version "zlib" "https://zlib.net/" "zlib-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)" || echo "${FALLBACK_VERSIONS[zlib]}")
+SQLITE_VER=$(get_sqlite_latest_version || echo "${FALLBACK_VERSIONS[sqlite]}")
+OPENSSL_VER=$(get_latest_version "openssl" "https://www.openssl.org/source/" "openssl-\K[0-9]+\.[0-9]+\.[0-9]+(?=\.tar)" || echo "${FALLBACK_VERSIONS[openssl]}")
+
+# Log which versions we'll be using
+log "Detected versions:"
+log "  Binutils: $BINUTILS_VER"
+log "  GCC: $GCC_VER"
+log "  Glibc: $GLIBC_VER"
+log "  Make: $MAKE_VER"
+log "  Autoconf: $AUTOCONF_VER"
+log "  Automake: $AUTOMAKE_VER"
+log "  Libtool: $LIBTOOL_VER"
+log "  pkg-config: $PKGCONFIG_VER"
+log "  zlib: $ZLIB_VER"
+log "  SQLite: $SQLITE_VER"
+log "  OpenSSL: $OPENSSL_VER"
+log "  ncurses: $NCURSES_VER"
+log "  readline: $READLINE_VER"
 
 log "=== Downloading Sources ==="
 
