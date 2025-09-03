@@ -104,7 +104,7 @@ get_gnu_latest_version() {
         return 0
     fi
     
-    log "🔍 Fetching latest version for $package..."
+    log "🔍 Fetching latest version for $package..." >&2
     
     local url="$GNU_MIRROR/$package/"
     local version
@@ -113,13 +113,13 @@ get_gnu_latest_version() {
     if version=$(curl -s "$url" | grep -oP "${package}-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)" | sort -V | tail -1); then
         if [[ -n "$version" ]]; then
             VERSION_CACHE[$cache_key]="$version"
-            log "✓ Found $package version: $version"
+            log "✓ Found $package version: $version" >&2
             echo "$version"
             return 0
         fi
     fi
     
-    handle_error "$package" "version detection"
+    handle_error "$package" "version detection" >&2
     return 1
 }
 
@@ -134,7 +134,7 @@ get_kernel_latest_version() {
         return 0
     fi
     
-    log "🔍 Fetching latest version from kernel.org/$path..."
+    log "🔍 Fetching latest version from kernel.org/$path..." >&2
     
     local url="$KERNEL_MIRROR/$path/"
     local version
@@ -142,13 +142,13 @@ get_kernel_latest_version() {
     if version=$(curl -s "$url" | grep -oP "$pattern" | sort -V | tail -1); then
         if [[ -n "$version" ]]; then
             VERSION_CACHE[$cache_key]="$version"
-            log "✓ Found version: $version"
+            log "✓ Found version: $version" >&2
             echo "$version"
             return 0
         fi
     fi
     
-    handle_error "$path" "version detection"
+    handle_error "$path" "version detection" >&2
     return 1
 }
 
@@ -164,19 +164,19 @@ get_latest_version() {
         return 0
     fi
     
-    log "🔍 Fetching latest version for $name..."
+    log "🔍 Fetching latest version for $name..." >&2
     
     local version
     if version=$(curl -s "$base_url" | grep -oP "$pattern" | sort -V | tail -1); then
         if [[ -n "$version" ]]; then
             VERSION_CACHE[$cache_key]="$version"
-            log "✓ Found $name version: $version"
+            log "✓ Found $name version: $version" >&2
             echo "$version"
             return 0
         fi
     fi
     
-    handle_error "$name" "version detection"
+    handle_error "$name" "version detection" >&2
     return 1
 }
 
@@ -189,20 +189,20 @@ get_sqlite_latest_version() {
         return 0
     fi
     
-    log "🔍 Fetching latest SQLite version..."
+    log "🔍 Fetching latest SQLite version..." >&2
     
     # SQLite uses a special naming convention
     local version_info
     if version_info=$(curl -s "https://www.sqlite.org/download.html" | grep -oP 'sqlite-autoconf-\K[0-9]+(?=\.tar\.gz)' | head -1); then
         if [[ -n "$version_info" ]]; then
             VERSION_CACHE[$cache_key]="$version_info"
-            log "✓ Found SQLite version: $version_info"
+            log "✓ Found SQLite version: $version_info" >&2
             echo "$version_info"
             return 0
         fi
     fi
     
-    handle_error "SQLite" "version detection"
+    handle_error "SQLite" "version detection" >&2
     return 1
 }
 
