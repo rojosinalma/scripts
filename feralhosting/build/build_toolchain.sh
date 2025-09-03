@@ -118,8 +118,7 @@ update_status() {
     echo "$component:$status:$extra" >> "$STATUS_FILE.tmp"
     mv "$STATUS_FILE.tmp" "$STATUS_FILE"
     
-    # Refresh TUI display
-    refresh_tui
+    # Don't refresh immediately to avoid flickering - let the main loops handle it
 }
 
 # Refresh the TUI display
@@ -128,9 +127,9 @@ refresh_tui() {
         return
     fi
     
-    # Clear screen and move to top
-    tput clear
+    # Move to top and clear from cursor down (less flickering than full clear)
     tput cup 0 0
+    tput ed
     
     # Header
     echo "┌────────────────────────────────────────────────────────────────────────────────┐"
@@ -530,8 +529,9 @@ READLINE_VER=$(get_gnu_latest_version "readline" || echo "${FALLBACK_VERSIONS[re
 PKGCONFIG_VER=$(get_latest_version "pkg-config" "https://pkgconfig.freedesktop.org/releases/" "pkg-config-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)" || echo "${FALLBACK_VERSIONS[pkg-config]}")
 ZLIB_VER=$(get_latest_version "zlib" "https://zlib.net/" "zlib-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar)" || echo "${FALLBACK_VERSIONS[zlib]}")
 SQLITE_VER=$(get_sqlite_latest_version || echo "${FALLBACK_VERSIONS[sqlite]}")
-# OpenSSL - use GitHub releases instead of openssl-library.org
-OPENSSL_VER=$(curl -s "https://api.github.com/repos/openssl/openssl/releases" | grep -oP '"tag_name":\s*"openssl-\K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "${FALLBACK_VERSIONS[openssl]}")
+# OpenSSL - GitHub API may be rate limited, use fallback for now
+OPENSSL_VER="${FALLBACK_VERSIONS[openssl]}"
+log "⚠️  Using fallback OpenSSL version: $OPENSSL_VER (GitHub API rate limited)"
 
 # Create detailed versions manifest
 VERSIONS_LOG="$LOGS_DIR/versions_manifest.log"
@@ -741,7 +741,7 @@ while [[ ${#DOWNLOAD_PIDS[@]} -gt 0 ]]; do
             log "✅ Download completed: $name"
         fi
     done
-    sleep 1
+    sleep 2
     refresh_tui
 done
 
@@ -821,7 +821,7 @@ while [[ ${#EXTRACT_PIDS[@]} -gt 0 ]]; do
             log "✅ Extraction completed: $name"
         fi
     done
-    sleep 1
+    sleep 2
     refresh_tui
 done
 

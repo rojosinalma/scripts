@@ -4,7 +4,8 @@
       "WebFetch(domain:www.openssl.org)",
       "WebFetch(domain:openssl-library.org)",
       "WebFetch(domain:ftp.gnu.org)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []
