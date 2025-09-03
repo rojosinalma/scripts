@@ -255,11 +255,16 @@ refresh_tui() {
     local in_progress=0
     local progress_percent=0
     
-    if [[ -f "$STATUS_FILE" ]]; then
-        completed=$(grep -c ":build_done:\|:skipped:" "$STATUS_FILE" 2>/dev/null || echo 0)
-        failed=$(grep -c ":.*_failed:" "$STATUS_FILE" 2>/dev/null || echo 0)
-        in_progress=$(grep -c ":downloading:\|:extracting:\|:building:" "$STATUS_FILE" 2>/dev/null || echo 0)
+    if [[ -f "$STATUS_FILE" && -s "$STATUS_FILE" ]]; then
+        completed=$(grep -c ":build_done:\|:skipped:" "$STATUS_FILE" 2>/dev/null | head -1 | tr -d '\n' || echo 0)
+        failed=$(grep -c ":.*_failed:" "$STATUS_FILE" 2>/dev/null | head -1 | tr -d '\n' || echo 0)
+        in_progress=$(grep -c ":downloading:\|:extracting:\|:building:" "$STATUS_FILE" 2>/dev/null | head -1 | tr -d '\n' || echo 0)
     fi
+    
+    # Ensure all variables are numeric
+    [[ "$completed" =~ ^[0-9]+$ ]] || completed=0
+    [[ "$failed" =~ ^[0-9]+$ ]] || failed=0
+    [[ "$in_progress" =~ ^[0-9]+$ ]] || in_progress=0
     
     # Avoid division by zero
     if [[ $total -gt 0 ]]; then
