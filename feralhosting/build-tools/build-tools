@@ -137,7 +137,7 @@ Examples:
   %(prog)s --only-download           # Download sources only
   %(prog)s --only-build              # Build from existing downloads
   %(prog)s --build-tool gcc          # Build only GCC
-  %(prog)s --verbose --test-mirrors  # Verbose with mirror testing
+  %(prog)s --verbose  # Verbose output
   
 Environment Variables:
   LOCAL_PREFIX=/path/to/tools        # Installation directory
@@ -152,8 +152,6 @@ Environment Variables:
                         help='Build from existing downloads without downloading')
     parser.add_argument('--verbose', action='store_true',
                         help='Show commands before executing')
-    parser.add_argument('--test-mirrors', action='store_true',
-                        help='Test mirror speeds and use the fastest one')
     parser.add_argument('--build-tool', choices=BUILD_ORDER,
                         help='Build only a specific tool')
     parser.add_argument('--status', action='store_true',
@@ -173,14 +171,8 @@ Environment Variables:
     # Get versions and URLs
     versions = get_versions()
     
-    # Determine mirror - automatically test mirrors unless disabled
-    from buildtools.config import TEST_MIRRORS
-    
-    mirror = GNU_MIRROR
-    if TEST_MIRRORS or args.test_mirrors:
-        # Force testing if --test-mirrors flag is used, otherwise use cache
-        force_test = args.test_mirrors
-        mirror = find_fastest_mirror(GNU_MIRRORS, force_test=force_test)
+    # Always test mirrors to find the fastest one
+    mirror = find_fastest_mirror(GNU_MIRRORS)
     
     urls = get_tool_urls(versions, mirror)
     

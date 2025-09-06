@@ -25,8 +25,6 @@ MAKE_JOBS = int(os.environ.get('MAKE_JOBS', str(multiprocessing.cpu_count())))
 # Verbose output flag
 VERBOSE = os.environ.get('VERBOSE', '').lower() in ('1', 'true', 'yes')
 
-# Test mirrors flag - now defaults to True for automatic mirror selection
-TEST_MIRRORS = os.environ.get('TEST_MIRRORS', 'true').lower() in ('1', 'true', 'yes')
 
 # Compatibility set selection
 COMPAT_SET = os.environ.get('COMPAT_SET', 'latest')
