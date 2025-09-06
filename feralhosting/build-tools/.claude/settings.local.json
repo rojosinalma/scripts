@@ -5,7 +5,9 @@
       "Bash(chmod:*)",
       "Bash(tree:*)",
       "Bash(git check-ignore:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(find:*)",
+      "Read(//home/platform/**)"
     ],
     "deny": [],
     "ask": []
